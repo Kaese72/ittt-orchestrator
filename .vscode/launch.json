@@ -1,0 +1,23 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "ittt-orchestrator (3pp forwarded)",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/main.go",
+            "env":{
+                "database_host": "127.0.0.1",
+                "database_port": "3306",
+                "database_user": "user",
+                "database_password": "databaseuserpassword",
+                "event_connectionString": "amqp://guest:guest@127.0.0.1:5672/",
+            },
+            
+        }
+    ]
+}
