@@ -31,6 +31,13 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        include:
+          - dockerfile: Dockerfile
+            image: ghcr.io/${{ github.repository }}-development
+          - dockerfile: Dockerfile.migrater
+            image: ghcr.io/${{ github.repository }}-migrater-development
 
     steps:
       - name: Checkout repository
@@ -53,7 +60,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}-development
+          images: ${{ matrix.image }}
           tags: |
             type=raw,value=${{ steps.previoustag.outputs.tag }}-{{date 'YYYYMMDDHHmmss'}}-{{sha}}
 
@@ -61,6 +68,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
