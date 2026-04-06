@@ -29,7 +29,8 @@ func NewMariadbPersistence(conf config.DatabaseConfig) (*mariadbPersistence, err
 type conditionRow struct {
 	ID             int
 	Type           string
-	Time           sql.NullString
+	FromTime       sql.NullString
+	ToTime         sql.NullString
 	DeviceID       sql.NullInt64
 	Attribute      sql.NullString
 	Boolean        sql.NullInt64 // NULL = not set, 0 = false, 1 = true
@@ -40,7 +41,7 @@ type conditionRow struct {
 // loadConditions fetches all condition rows for a rule and returns them keyed by ID.
 func (p *mariadbPersistence) loadConditions(ruleID int) (map[int]conditionRow, error) {
 	rows, err := p.db.Query(`
-		SELECT id, type, time, device_id, attribute, boolean, and_condition_id, or_condition_id
+		SELECT id, type, from_time, to_time, device_id, attribute, boolean, and_condition_id, or_condition_id
 		FROM conditions WHERE rule_id = ?
 	`, ruleID)
 	if err != nil {
@@ -52,7 +53,7 @@ func (p *mariadbPersistence) loadConditions(ruleID int) (map[int]conditionRow, e
 	for rows.Next() {
 		var row conditionRow
 		if err := rows.Scan(
-			&row.ID, &row.Type, &row.Time, &row.DeviceID, &row.Attribute,
+			&row.ID, &row.Type, &row.FromTime, &row.ToTime, &row.DeviceID, &row.Attribute,
 			&row.Boolean, &row.AndConditionID, &row.OrConditionID,
 		); err != nil {
 			return nil, err
@@ -72,8 +73,11 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 	tree := &restmodels.ConditionTree{
 		Condition: restmodels.Condition{Type: row.Type},
 	}
-	if row.Time.Valid {
-		tree.Condition.Time = row.Time.String
+	if row.FromTime.Valid {
+		tree.Condition.From = row.FromTime.String
+	}
+	if row.ToTime.Valid {
+		tree.Condition.To = row.ToTime.String
 	}
 	if row.DeviceID.Valid {
 		tree.Condition.ID = int(row.DeviceID.Int64)
@@ -121,11 +125,12 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 
 	cond := tree.Condition
 	result, err := tx.Exec(`
-		INSERT INTO conditions (rule_id, type, time, device_id, attribute, boolean, and_condition_id, or_condition_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO conditions (rule_id, type, from_time, to_time, device_id, attribute, boolean, and_condition_id, or_condition_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ruleID,
 		cond.Type,
-		emptyStringToNil(cond.Time),
+		emptyStringToNil(cond.From),
+		emptyStringToNil(cond.To),
 		zeroIntToNil(cond.ID),
 		emptyStringToNil(cond.Attribute),
 		boolPtrToNullInt(cond.Boolean),
@@ -261,16 +266,16 @@ func (p *mariadbPersistence) UpdateRule(id int, rule restmodels.Rule) (restmodel
 	if rule.Enabled {
 		enabledInt = 1
 	}
-	result, err := tx.Exec(`UPDATE rules SET name = ?, enabled = ? WHERE id = ?`, rule.Name, enabledInt, id)
-	if err != nil {
+	var exists int
+	if err := tx.QueryRow(`SELECT COUNT(1) FROM rules WHERE id = ?`, id).Scan(&exists); err != nil {
 		return restmodels.Rule{}, err
 	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return restmodels.Rule{}, err
-	}
-	if rowsAffected == 0 {
+	if exists == 0 {
 		return restmodels.Rule{}, huma.Error404NotFound(fmt.Sprintf("rule %d not found", id))
+	}
+
+	if _, err := tx.Exec(`UPDATE rules SET name = ?, enabled = ? WHERE id = ?`, rule.Name, enabledInt, id); err != nil {
+		return restmodels.Rule{}, err
 	}
 
 	// Replace the condition tree: delete existing conditions, insert new ones.
@@ -366,19 +371,19 @@ func (p *mariadbPersistence) UpdateAction(ruleID, actionID int, action restmodel
 	if err != nil {
 		return restmodels.Action{}, err
 	}
-	result, err := p.db.Exec(
+	var exists int
+	if err := p.db.QueryRow(`SELECT COUNT(1) FROM rule_actions WHERE id = ? AND rule_id = ?`, actionID, ruleID).Scan(&exists); err != nil {
+		return restmodels.Action{}, err
+	}
+	if exists == 0 {
+		return restmodels.Action{}, huma.Error404NotFound(fmt.Sprintf("action %d not found for rule %d", actionID, ruleID))
+	}
+
+	if _, err := p.db.Exec(
 		`UPDATE rule_actions SET type = ?, target_id = ?, capability = ?, args = ? WHERE id = ? AND rule_id = ?`,
 		action.Type, action.ID, action.Capability, argsJSON, actionID, ruleID,
-	)
-	if err != nil {
+	); err != nil {
 		return restmodels.Action{}, err
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return restmodels.Action{}, err
-	}
-	if rows == 0 {
-		return restmodels.Action{}, huma.Error404NotFound(fmt.Sprintf("action %d not found for rule %d", actionID, ruleID))
 	}
 	return p.GetAction(ruleID, actionID)
 }

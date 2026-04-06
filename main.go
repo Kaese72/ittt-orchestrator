@@ -38,7 +38,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	webapp := restwebapp.NewWebApp(db)
+	webapp := restwebapp.NewWebApp(db, orch)
 
 	router := mux.NewRouter()
 	humaConfig := huma.DefaultConfig("ittt-orchestrator", "1.0.0")
@@ -53,6 +53,7 @@ func main() {
 	huma.Put(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}", webapp.UpdateRule)
 	huma.Delete(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}", webapp.DeleteRule)
 
+	huma.Get(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/evaluate", webapp.EvaluateRule)
 	huma.Get(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/actions", webapp.GetActions)
 	huma.Post(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/actions", webapp.CreateAction)
 	huma.Get(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/actions/{actionID:[0-9]+}", webapp.GetAction)

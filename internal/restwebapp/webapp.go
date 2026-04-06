@@ -4,24 +4,32 @@ import (
 	"context"
 	"net/http"
 
+	log "github.com/Kaese72/huemie-lib/logging"
+	"github.com/Kaese72/ittt-orchestrator/internal/orchestrator"
 	"github.com/Kaese72/ittt-orchestrator/internal/persistence"
 	"github.com/Kaese72/ittt-orchestrator/restmodels"
 	"github.com/danielgtaylor/huma/v2"
 )
 
-type WebApp struct {
-	db persistence.PersistenceDB
+func internalError(err error) error {
+	log.Error(err.Error(), map[string]interface{}{})
+	return huma.Error500InternalServerError(err.Error())
 }
 
-func NewWebApp(db persistence.PersistenceDB) WebApp {
-	return WebApp{db: db}
+type WebApp struct {
+	db   persistence.PersistenceDB
+	orch *orchestrator.Orchestrator
+}
+
+func NewWebApp(db persistence.PersistenceDB, orch *orchestrator.Orchestrator) WebApp {
+	return WebApp{db: db, orch: orch}
 }
 
 // GetRules returns all automation rules
 func (w WebApp) GetRules(ctx context.Context, _ *struct{}) (*struct{ Body []restmodels.Rule }, error) {
 	rules, err := w.db.GetRules()
 	if err != nil {
-		return nil, huma.Error500InternalServerError(err.Error())
+		return nil, internalError(err)
 	}
 	return &struct{ Body []restmodels.Rule }{Body: rules}, nil
 }
@@ -32,7 +40,7 @@ func (w WebApp) GetRule(ctx context.Context, input *struct {
 }) (*struct{ Body restmodels.Rule }, error) {
 	rule, err := w.db.GetRule(input.RuleID)
 	if err != nil {
-		return nil, huma.Error500InternalServerError(err.Error())
+		return nil, internalError(err)
 	}
 	return &struct{ Body restmodels.Rule }{Body: rule}, nil
 }
@@ -45,7 +53,7 @@ func (w WebApp) CreateRule(ctx context.Context, input *struct {
 }, error) {
 	created, err := w.db.CreateRule(input.Body)
 	if err != nil {
-		return nil, huma.Error500InternalServerError(err.Error())
+		return nil, internalError(err)
 	}
 	return &struct{ Body restmodels.Rule }{Body: created}, nil
 }
@@ -57,7 +65,7 @@ func (w WebApp) UpdateRule(ctx context.Context, input *struct {
 }) (*struct{ Body restmodels.Rule }, error) {
 	updated, err := w.db.UpdateRule(input.RuleID, input.Body)
 	if err != nil {
-		return nil, huma.Error500InternalServerError(err.Error())
+		return nil, internalError(err)
 	}
 	return &struct{ Body restmodels.Rule }{Body: updated}, nil
 }
@@ -67,7 +75,7 @@ func (w WebApp) DeleteRule(ctx context.Context, input *struct {
 	RuleID int `path:"ruleID"`
 }) (*struct{}, error) {
 	if err := w.db.DeleteRule(input.RuleID); err != nil {
-		return nil, huma.Error500InternalServerError(err.Error())
+		return nil, internalError(err)
 	}
 	return nil, nil
 }
@@ -78,7 +86,7 @@ func (w WebApp) GetActions(ctx context.Context, input *struct {
 }) (*struct{ Body []restmodels.Action }, error) {
 	actions, err := w.db.GetActions(input.RuleID)
 	if err != nil {
-		return nil, huma.Error500InternalServerError(err.Error())
+		return nil, internalError(err)
 	}
 	return &struct{ Body []restmodels.Action }{Body: actions}, nil
 }
@@ -90,7 +98,7 @@ func (w WebApp) GetAction(ctx context.Context, input *struct {
 }) (*struct{ Body restmodels.Action }, error) {
 	action, err := w.db.GetAction(input.RuleID, input.ActionID)
 	if err != nil {
-		return nil, huma.Error500InternalServerError(err.Error())
+		return nil, internalError(err)
 	}
 	return &struct{ Body restmodels.Action }{Body: action}, nil
 }
@@ -102,7 +110,7 @@ func (w WebApp) CreateAction(ctx context.Context, input *struct {
 }) (*struct{ Body restmodels.Action }, error) {
 	created, err := w.db.CreateAction(input.RuleID, input.Body)
 	if err != nil {
-		return nil, huma.Error500InternalServerError(err.Error())
+		return nil, internalError(err)
 	}
 	return &struct{ Body restmodels.Action }{Body: created}, nil
 }
@@ -115,7 +123,7 @@ func (w WebApp) UpdateAction(ctx context.Context, input *struct {
 }) (*struct{ Body restmodels.Action }, error) {
 	updated, err := w.db.UpdateAction(input.RuleID, input.ActionID, input.Body)
 	if err != nil {
-		return nil, huma.Error500InternalServerError(err.Error())
+		return nil, internalError(err)
 	}
 	return &struct{ Body restmodels.Action }{Body: updated}, nil
 }
@@ -126,9 +134,29 @@ func (w WebApp) DeleteAction(ctx context.Context, input *struct {
 	ActionID int `path:"actionID"`
 }) (*struct{}, error) {
 	if err := w.db.DeleteAction(input.RuleID, input.ActionID); err != nil {
-		return nil, huma.Error500InternalServerError(err.Error())
+		return nil, internalError(err)
 	}
 	return nil, nil
+}
+
+// EvaluateRuleOutput is the response body for the evaluate endpoint
+type EvaluateRuleOutput struct {
+	Result bool   `json:"result"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// EvaluateRule evaluates the condition tree of a rule against the current state
+func (w WebApp) EvaluateRule(ctx context.Context, input *struct {
+	RuleID int `path:"ruleID"`
+}) (*struct{ Body EvaluateRuleOutput }, error) {
+	evalResult, err := w.orch.EvaluateConditionTree(input.RuleID)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return &struct{ Body EvaluateRuleOutput }{Body: EvaluateRuleOutput{
+		Result: evalResult.Result,
+		Reason: evalResult.Reason,
+	}}, nil
 }
 
 // StatusOutput is the response body for the health endpoint

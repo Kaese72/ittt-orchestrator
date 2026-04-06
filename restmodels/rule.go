@@ -11,8 +11,9 @@ type ConditionTree struct {
 // Condition is a single boolean check within a ConditionTree node.
 type Condition struct {
 	Type string `json:"type"`
-	// Used by time-gte and time-lt
-	Time string `json:"time,omitempty"`
+	// Used by time-range
+	From string `json:"from,omitempty"`
+	To   string `json:"to,omitempty"`
 	// Used by device-id-attribute-boolean-eq
 	ID        int    `json:"id,omitempty"`
 	Attribute string `json:"attribute,omitempty"`

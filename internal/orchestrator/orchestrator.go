@@ -22,6 +22,26 @@ func New(db persistence.PersistenceDB, dsClient *devicestore.Client) *Orchestrat
 	return &Orchestrator{db: db, dsClient: dsClient}
 }
 
+// EvalResult holds the outcome of a condition tree evaluation.
+type EvalResult struct {
+	Result bool
+	Reason string // non-empty when Result is false
+}
+
+// EvaluateConditionTree evaluates the condition tree of the given rule against
+// the current time and live device state, returning the result and reason.
+func (o *Orchestrator) EvaluateConditionTree(ruleID int) (EvalResult, error) {
+	rule, err := o.db.GetRule(ruleID)
+	if err != nil {
+		return EvalResult{}, err
+	}
+	ctx := &evalContext{
+		dsClient:    o.dsClient,
+		deviceCache: make(map[int][]devicestore.Attribute),
+	}
+	return evaluateTree(rule.ConditionTree, ctx), nil
+}
+
 // HandleDeviceUpdate is called for every device attribute update received from
 // the event bus. It finds rules that reference the updated device, evaluates
 // their condition trees, and triggers actions for those that evaluate to true.
@@ -43,7 +63,7 @@ func (o *Orchestrator) HandleDeviceUpdate(update eventmodels.DeviceAttributeUpda
 			dsClient:    o.dsClient,
 			deviceCache: make(map[int][]devicestore.Attribute),
 		}
-		if evaluateTree(rule.ConditionTree, ctx) {
+		if evaluateTree(rule.ConditionTree, ctx).Result {
 			for _, action := range rule.Actions {
 				if err := triggerAction(o.dsClient, action); err != nil {
 					log.Error(fmt.Sprintf("failed to trigger action %d for rule %d: %s", action.ActionID, rule.ID, err.Error()), map[string]interface{}{})
@@ -88,64 +108,91 @@ func (c *evalContext) getDeviceBooleanAttribute(deviceID int, attribute string) 
 	return nil, nil
 }
 
-// evaluateTree evaluates a condition tree recursively.
+// evaluateTree evaluates a condition tree recursively, returning a result and
+// a human-readable reason when the result is false.
 //
 // Each node evaluates its own condition. If an AND child is present its result
 // is ANDed with the node result. If an OR child is present the node result
 // (after applying AND) is ORed with the OR subtree.
-func evaluateTree(tree *restmodels.ConditionTree, ctx *evalContext) bool {
+func evaluateTree(tree *restmodels.ConditionTree, ctx *evalContext) EvalResult {
 	if tree == nil {
-		return true
+		return EvalResult{Result: true}
 	}
-	nodeResult := evaluateCondition(tree.Condition, ctx)
+
+	node := evaluateCondition(tree.Condition, ctx)
+
+	combined := node
 	if tree.And != nil {
-		nodeResult = nodeResult && evaluateTree(tree.And, ctx)
+		andResult := evaluateTree(tree.And, ctx)
+		if !andResult.Result {
+			combined = EvalResult{Result: false, Reason: andResult.Reason}
+			if !node.Result {
+				combined.Reason = node.Reason
+			}
+		}
 	}
+
 	if tree.Or != nil {
-		return nodeResult || evaluateTree(tree.Or, ctx)
+		orResult := evaluateTree(tree.Or, ctx)
+		if combined.Result || orResult.Result {
+			return EvalResult{Result: true}
+		}
+		return EvalResult{Result: false, Reason: fmt.Sprintf("(%s) OR (%s)", combined.Reason, orResult.Reason)}
 	}
-	return nodeResult
+
+	return combined
 }
 
-func evaluateCondition(cond restmodels.Condition, ctx *evalContext) bool {
+func evaluateCondition(cond restmodels.Condition, ctx *evalContext) EvalResult {
 	switch cond.Type {
-	case "time-gte":
-		t, err := time.Parse("15:04:05", cond.Time)
+	case "time-range":
+		from, err := time.Parse("15:04:05", cond.From)
 		if err != nil {
-			log.Error(fmt.Sprintf("invalid time in time-gte condition: %s", err.Error()), map[string]interface{}{})
-			return false
+			log.Error(fmt.Sprintf("invalid from time in time-range condition: %s", err.Error()), map[string]interface{}{})
+			return EvalResult{Result: false, Reason: fmt.Sprintf("invalid from time format %q", cond.From)}
+		}
+		to, err := time.Parse("15:04:05", cond.To)
+		if err != nil {
+			log.Error(fmt.Sprintf("invalid to time in time-range condition: %s", err.Error()), map[string]interface{}{})
+			return EvalResult{Result: false, Reason: fmt.Sprintf("invalid to time format %q", cond.To)}
 		}
 		now := time.Now().UTC()
-		threshold := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), t.Second(), 0, time.UTC)
-		return !now.Before(threshold)
-
-	case "time-lt":
-		t, err := time.Parse("15:04:05", cond.Time)
-		if err != nil {
-			log.Error(fmt.Sprintf("invalid time in time-lt condition: %s", err.Error()), map[string]interface{}{})
-			return false
+		fromToday := time.Date(now.Year(), now.Month(), now.Day(), from.Hour(), from.Minute(), from.Second(), 0, time.UTC)
+		toToday := time.Date(now.Year(), now.Month(), now.Day(), to.Hour(), to.Minute(), to.Second(), 0, time.UTC)
+		nowStr := now.Format("15:04:05")
+		var inRange bool
+		if !fromToday.After(toToday) {
+			// Normal range: 06:00–22:00
+			inRange = !now.Before(fromToday) && now.Before(toToday)
+		} else {
+			// Midnight-wrapping range: 22:00–06:00
+			inRange = !now.Before(fromToday) || now.Before(toToday)
 		}
-		now := time.Now().UTC()
-		threshold := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), t.Second(), 0, time.UTC)
-		return now.Before(threshold)
+		if !inRange {
+			return EvalResult{Result: false, Reason: fmt.Sprintf("current time %s is outside range %s–%s", nowStr, cond.From, cond.To)}
+		}
+		return EvalResult{Result: true}
 
 	case "device-id-attribute-boolean-eq":
 		if cond.Boolean == nil {
-			return false
+			return EvalResult{Result: false, Reason: fmt.Sprintf("device %d.%s: no expected value configured", cond.ID, cond.Attribute)}
 		}
 		attrValue, err := ctx.getDeviceBooleanAttribute(cond.ID, cond.Attribute)
 		if err != nil {
 			log.Error(fmt.Sprintf("failed to fetch device %d attribute %q: %s", cond.ID, cond.Attribute, err.Error()), map[string]interface{}{})
-			return false
+			return EvalResult{Result: false, Reason: fmt.Sprintf("device %d.%s: fetch error: %s", cond.ID, cond.Attribute, err.Error())}
 		}
 		if attrValue == nil {
-			return false
+			return EvalResult{Result: false, Reason: fmt.Sprintf("device %d has no attribute %q", cond.ID, cond.Attribute)}
 		}
-		return *attrValue == *cond.Boolean
+		if *attrValue != *cond.Boolean {
+			return EvalResult{Result: false, Reason: fmt.Sprintf("device %d.%s is %v, expected %v", cond.ID, cond.Attribute, *attrValue, *cond.Boolean)}
+		}
+		return EvalResult{Result: true}
 
 	default:
 		log.Error(fmt.Sprintf("unknown condition type: %s", cond.Type), map[string]interface{}{})
-		return false
+		return EvalResult{Result: false, Reason: fmt.Sprintf("unknown condition type %q", cond.Type)}
 	}
 }
 

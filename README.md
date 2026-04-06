@@ -26,10 +26,9 @@ AND relationships while no additional indentation represents OR relationships.
 For example, a simple rule for an outdoor light which should be turned on in the morning if any of its two
 lights are off at the time.
 
-* Time >= 06:00 UTC
-  * Time < 10:00 UTC
-    * device[id=1].active == false
-    * device[id=2].active == false
+* Time in range 06:00–10:00 UTC
+  * device[id=1].active == false
+  * device[id=2].active == false
 
 In the API, a rule with this `condition tree` would then have the `"condition-tree"` attribute and look something like this
 
@@ -37,28 +36,23 @@ In the API, a rule with this `condition tree` would then have the `"condition-tr
 {
     "condition-tree": {
         "condition": {
-            "type": "time-gte",
-            "time": "06:00:00"
+            "type": "time-range",
+            "from": "06:00:00",
+            "to": "10:00:00"
         },
         "and": {
             "condition": {
-                "type": "time-lt",
-                "time": "10:00:00"
+                "type": "device-id-attribute-boolean-eq",
+                "id": 1,
+                "attribute": "active",
+                "boolean": false
             },
-            "and": {
+            "or": {
                 "condition": {
                     "type": "device-id-attribute-boolean-eq",
-                    "id": 1,
+                    "id": 2,
                     "attribute": "active",
                     "boolean": false
-                },
-                "or": {
-                    "condition": {
-                        "type": "device-id-attribute-boolean-eq",
-                        "id": 2,
-                        "attribute": "active",
-                        "boolean": false
-                    }
                 }
             }
         }
@@ -74,13 +68,15 @@ Each `condition` has a type leading to different functionality and looks for dif
 
 Determined by the `type` attribute of a `condition`. The subsections describe what the different options lead to.
 
-#### "time-gte"
+#### "time-range"
 
-True when the current time is greater than or equal to the time stored in the `time` attribute.
+True when the current time (UTC) falls within the range defined by `from` (inclusive) and `to` (exclusive).
 
-#### "time-lt"
+Both `from` and `to` are strings in `HH:MM:SS` format.
 
-True when the current time is less than what is stored in the `time` attribute.
+If `from` is earlier than `to` the range falls within a single day — for example `"from": "06:00:00", "to": "22:00:00"` is true between 06:00 and 22:00.
+
+If `from` is later than `to` the range wraps around midnight — for example `"from": "22:00:00", "to": "06:00:00"` is true between 22:00 and 06:00 the following morning.
 
 #### "device-id-attribute-boolean-eq"
 
