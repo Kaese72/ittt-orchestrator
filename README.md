@@ -8,9 +8,10 @@ A rule consists of `conditions`, organized into a `condition tree` and `actions`
 `Actions` are simply capability triggers of either groups or devices that triggers when the
 conditions are true.
 
-A `rule` can be put on cooldown, meaning it is scheduled to trigger once the cooldown
-expires. This functionality can primarily be trigged through the `conditions`, where 
-a change to a device state we rely on will put the rule on cooldown for a while.
+A `rule` simply describes what the state should be for the rule to trigger.
+The actual evaluation happens on a dynamic scheduled,
+which is set based on events happening outside the orchestrator (like devices
+changing state) or any time based nodes in the `condition tree`. See "Scheduling".
 
 ## Condition tree
 
@@ -78,6 +79,15 @@ If `from` is earlier than `to` the range falls within a single day — for examp
 
 If `from` is later than `to` the range wraps around midnight — for example `"from": "22:00:00", "to": "06:00:00"` is true between 22:00 and 06:00 the following morning.
 
+When evaluated, this emits a *next occurence* matching
+* `from` if we are outside the range
+  * Ie. the *node* evalautes to false
+* `to` if we are inside the range
+  * Ie. the *node* evaluates to *true*
+
+The `from` and `to` may be the next day depending on when we are
+within or outside the range we are.
+
 #### "device-id-attribute-boolean-eq"
 
 True when the device identified by the id stored in `id` has an attribute matching 
@@ -89,20 +99,23 @@ If any of these are not true, the `condition` evaluates to `false`. For example,
 * The device identified by `id` does not have the "active" attribute
 * The named attribute does not have a boolean state (null)
 
-## Cooldown
+This type never emits any *next occurence* when used in a `condition tree`.
 
-A rule can be put on "cooldown", meaning it gets scheduled to trigger after some time
-and it does not matter how many times it would otherwise trigger.
+## Scheduling
 
-A typical example of this functionality would be to allow an "interrupt"
-of a schedule like rule. For example, if a rule says that lights should be
-off after 20.00, we may put a cooldown on the device state check such that if 
-the lights are turned on at 21.00, the rule may be put on cooldown for 30 minutes,
-which means that the lights will remain on for the duration of the cooldown, and then
-the rule will be evaluated after 30 minutes, evaluate to true, and turn off the lights.
+A `rule` is expected to be triggered, and one of the triggers is through *scheduling* 
+where the rule triggers based on its *next occurence*. The *next occurence* is determined
+when the `rule` is evaluated and the *next occurence* is then set based on 
+what nodes there are in the `condition tree`, or not set at all if there is nothing
+that interacts with scheduling. 
 
-The cooldown is set on the entire `rule`, and each things that interacts with the
-cooldown should document how that interraction works. 
+When a `rule` is evaluated there may be multiple things interacting with the *scheduling*.
+In such a case the *next occurence* should be set to the closes non-null value returned
+from the evaluation.
+
+The *next occurence* is a date and time, and not just a time.
+
+If no *next occurence* is set, the `rule` will not be triggered on a schedule.
 
 ## Actions
 

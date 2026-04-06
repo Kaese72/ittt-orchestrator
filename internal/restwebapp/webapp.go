@@ -2,9 +2,13 @@ package restwebapp
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"time"
 
 	log "github.com/Kaese72/huemie-lib/logging"
+	"github.com/Kaese72/ittt-orchestrator/eventmodels"
+	"github.com/Kaese72/ittt-orchestrator/internal/events"
 	"github.com/Kaese72/ittt-orchestrator/internal/orchestrator"
 	"github.com/Kaese72/ittt-orchestrator/internal/persistence"
 	"github.com/Kaese72/ittt-orchestrator/restmodels"
@@ -17,12 +21,20 @@ func internalError(err error) error {
 }
 
 type WebApp struct {
-	db   persistence.PersistenceDB
-	orch *orchestrator.Orchestrator
+	db        persistence.PersistenceDB
+	orch      *orchestrator.Orchestrator
+	publisher *events.RuleEventPublisher
 }
 
-func NewWebApp(db persistence.PersistenceDB, orch *orchestrator.Orchestrator) WebApp {
-	return WebApp{db: db, orch: orch}
+func NewWebApp(db persistence.PersistenceDB, orch *orchestrator.Orchestrator, publisher *events.RuleEventPublisher) WebApp {
+	return WebApp{db: db, orch: orch, publisher: publisher}
+}
+
+// publishRuleEvent publishes a rule event and logs but does not fail on error.
+func (w WebApp) publishRuleEvent(ruleID int, event string) {
+	if err := w.publisher.Publish(eventmodels.RuleEvent{RuleID: ruleID, Event: event}); err != nil {
+		log.Error(fmt.Sprintf("failed to publish rule event for rule %d: %s", ruleID, err.Error()), map[string]interface{}{})
+	}
 }
 
 // GetRules returns all automation rules
@@ -55,6 +67,7 @@ func (w WebApp) CreateRule(ctx context.Context, input *struct {
 	if err != nil {
 		return nil, internalError(err)
 	}
+	w.publishRuleEvent(created.ID, "upsert")
 	return &struct{ Body restmodels.Rule }{Body: created}, nil
 }
 
@@ -67,6 +80,7 @@ func (w WebApp) UpdateRule(ctx context.Context, input *struct {
 	if err != nil {
 		return nil, internalError(err)
 	}
+	w.publishRuleEvent(updated.ID, "upsert")
 	return &struct{ Body restmodels.Rule }{Body: updated}, nil
 }
 
@@ -77,6 +91,7 @@ func (w WebApp) DeleteRule(ctx context.Context, input *struct {
 	if err := w.db.DeleteRule(input.RuleID); err != nil {
 		return nil, internalError(err)
 	}
+	w.publishRuleEvent(input.RuleID, "deleted")
 	return nil, nil
 }
 
@@ -141,8 +156,9 @@ func (w WebApp) DeleteAction(ctx context.Context, input *struct {
 
 // EvaluateRuleOutput is the response body for the evaluate endpoint
 type EvaluateRuleOutput struct {
-	Result bool   `json:"result"`
-	Reason string `json:"reason,omitempty"`
+	Result         bool       `json:"result"`
+	Reason         string     `json:"reason,omitempty"`
+	NextOccurrence *time.Time `json:"next-occurrence,omitempty"`
 }
 
 // EvaluateRule evaluates the condition tree of a rule against the current state
@@ -154,8 +170,9 @@ func (w WebApp) EvaluateRule(ctx context.Context, input *struct {
 		return nil, internalError(err)
 	}
 	return &struct{ Body EvaluateRuleOutput }{Body: EvaluateRuleOutput{
-		Result: evalResult.Result,
-		Reason: evalResult.Reason,
+		Result:         evalResult.Result,
+		Reason:         evalResult.Reason,
+		NextOccurrence: evalResult.NextOccurrence,
 	}}, nil
 }
 

@@ -22,10 +22,34 @@ func New(db persistence.PersistenceDB, dsClient *devicestore.Client) *Orchestrat
 	return &Orchestrator{db: db, dsClient: dsClient}
 }
 
+// EvaluateAndTrigger evaluates the condition tree of the given rule, triggers
+// its actions if the result is true, and returns the full EvalResult so the
+// caller can act on NextOccurrence.
+func (o *Orchestrator) EvaluateAndTrigger(ruleID int) (EvalResult, error) {
+	rule, err := o.db.GetRule(ruleID)
+	if err != nil {
+		return EvalResult{}, err
+	}
+	if !rule.Enabled {
+		return EvalResult{}, nil
+	}
+	ctx := &evalContext{dsClient: o.dsClient, deviceCache: make(map[int][]devicestore.Attribute)}
+	result := evaluateTree(rule.ConditionTree, ctx)
+	if result.Result {
+		for _, action := range rule.Actions {
+			if err := triggerAction(o.dsClient, action); err != nil {
+				log.Error(fmt.Sprintf("failed to trigger action %d for rule %d: %s", action.ActionID, ruleID, err.Error()), map[string]interface{}{})
+			}
+		}
+	}
+	return result, nil
+}
+
 // EvalResult holds the outcome of a condition tree evaluation.
 type EvalResult struct {
-	Result bool
-	Reason string // non-empty when Result is false
+	Result         bool
+	Reason         string     // non-empty when Result is false
+	NextOccurrence *time.Time // when the rule should next be re-evaluated; nil if not applicable
 }
 
 // EvaluateConditionTree evaluates the condition tree of the given rule against
@@ -63,7 +87,8 @@ func (o *Orchestrator) HandleDeviceUpdate(update eventmodels.DeviceAttributeUpda
 			dsClient:    o.dsClient,
 			deviceCache: make(map[int][]devicestore.Attribute),
 		}
-		if evaluateTree(rule.ConditionTree, ctx).Result {
+		result := evaluateTree(rule.ConditionTree, ctx)
+		if result.Result {
 			for _, action := range rule.Actions {
 				if err := triggerAction(o.dsClient, action); err != nil {
 					log.Error(fmt.Sprintf("failed to trigger action %d for rule %d: %s", action.ActionID, rule.ID, err.Error()), map[string]interface{}{})
@@ -108,22 +133,35 @@ func (c *evalContext) getDeviceBooleanAttribute(deviceID int, attribute string) 
 	return nil, nil
 }
 
-// evaluateTree evaluates a condition tree recursively, returning a result and
-// a human-readable reason when the result is false.
-//
-// Each node evaluates its own condition. If an AND child is present its result
-// is ANDed with the node result. If an OR child is present the node result
-// (after applying AND) is ORed with the OR subtree.
+// minNextOcc returns the earlier of two optional timestamps.
+func minNextOcc(a, b *time.Time) *time.Time {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	if a.Before(*b) {
+		return a
+	}
+	return b
+}
+
+// evaluateTree evaluates a condition tree recursively, returning a result,
+// a human-readable reason when the result is false, and the next occurrence
+// timestamp (the earliest non-nil value emitted by any node in the tree).
 func evaluateTree(tree *restmodels.ConditionTree, ctx *evalContext) EvalResult {
 	if tree == nil {
 		return EvalResult{Result: true}
 	}
 
 	node := evaluateCondition(tree.Condition, ctx)
+	nextOcc := node.NextOccurrence
 
 	combined := node
 	if tree.And != nil {
 		andResult := evaluateTree(tree.And, ctx)
+		nextOcc = minNextOcc(nextOcc, andResult.NextOccurrence)
 		if !andResult.Result {
 			combined = EvalResult{Result: false, Reason: andResult.Reason}
 			if !node.Result {
@@ -134,12 +172,18 @@ func evaluateTree(tree *restmodels.ConditionTree, ctx *evalContext) EvalResult {
 
 	if tree.Or != nil {
 		orResult := evaluateTree(tree.Or, ctx)
+		nextOcc = minNextOcc(nextOcc, orResult.NextOccurrence)
 		if combined.Result || orResult.Result {
-			return EvalResult{Result: true}
+			return EvalResult{Result: true, NextOccurrence: nextOcc}
 		}
-		return EvalResult{Result: false, Reason: fmt.Sprintf("(%s) OR (%s)", combined.Reason, orResult.Reason)}
+		return EvalResult{
+			Result:         false,
+			Reason:         fmt.Sprintf("(%s) OR (%s)", combined.Reason, orResult.Reason),
+			NextOccurrence: nextOcc,
+		}
 	}
 
+	combined.NextOccurrence = nextOcc
 	return combined
 }
 
@@ -159,19 +203,43 @@ func evaluateCondition(cond restmodels.Condition, ctx *evalContext) EvalResult {
 		now := time.Now().UTC()
 		fromToday := time.Date(now.Year(), now.Month(), now.Day(), from.Hour(), from.Minute(), from.Second(), 0, time.UTC)
 		toToday := time.Date(now.Year(), now.Month(), now.Day(), to.Hour(), to.Minute(), to.Second(), 0, time.UTC)
-		nowStr := now.Format("15:04:05")
+		tomorrow := 24 * time.Hour
+
 		var inRange bool
+		var nextOcc time.Time
+
 		if !fromToday.After(toToday) {
-			// Normal range: 06:00–22:00
+			// Normal range e.g. 06:00–22:00
 			inRange = !now.Before(fromToday) && now.Before(toToday)
+			if inRange {
+				nextOcc = toToday // exit at to today
+			} else if now.Before(fromToday) {
+				nextOcc = fromToday // enter at from today
+			} else {
+				nextOcc = fromToday.Add(tomorrow) // enter at from tomorrow
+			}
 		} else {
-			// Midnight-wrapping range: 22:00–06:00
+			// Midnight-wrapping range e.g. 22:00–06:00
 			inRange = !now.Before(fromToday) || now.Before(toToday)
+			if inRange {
+				if !now.Before(fromToday) {
+					nextOcc = toToday.Add(tomorrow) // in evening part, exit at to tomorrow
+				} else {
+					nextOcc = toToday // in morning part, exit at to today
+				}
+			} else {
+				nextOcc = fromToday // outside range, enter at from today
+			}
 		}
+
 		if !inRange {
-			return EvalResult{Result: false, Reason: fmt.Sprintf("current time %s is outside range %s–%s", nowStr, cond.From, cond.To)}
+			return EvalResult{
+				Result:         false,
+				Reason:         fmt.Sprintf("current time %s is outside range %s–%s", now.Format("15:04:05"), cond.From, cond.To),
+				NextOccurrence: &nextOcc,
+			}
 		}
-		return EvalResult{Result: true}
+		return EvalResult{Result: true, NextOccurrence: &nextOcc}
 
 	case "device-id-attribute-boolean-eq":
 		if cond.Boolean == nil {
