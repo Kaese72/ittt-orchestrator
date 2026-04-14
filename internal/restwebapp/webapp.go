@@ -67,6 +67,13 @@ func (w WebApp) CreateRule(ctx context.Context, input *struct {
 	if err != nil {
 		return nil, internalError(err)
 	}
+	evalResult, err := w.orch.EvaluateConditionTree(created.ID)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	if err := w.db.UpdateNextOccurrence(created.ID, evalResult.NextOccurrence); err != nil {
+		return nil, internalError(err)
+	}
 	w.publishRuleEvent(created.ID, "upsert")
 	return &struct{ Body restmodels.Rule }{Body: created}, nil
 }
@@ -78,6 +85,13 @@ func (w WebApp) UpdateRule(ctx context.Context, input *struct {
 }) (*struct{ Body restmodels.Rule }, error) {
 	updated, err := w.db.UpdateRule(input.RuleID, input.Body)
 	if err != nil {
+		return nil, internalError(err)
+	}
+	evalResult, err := w.orch.EvaluateConditionTree(updated.ID)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	if err := w.db.UpdateNextOccurrence(updated.ID, evalResult.NextOccurrence); err != nil {
 		return nil, internalError(err)
 	}
 	w.publishRuleEvent(updated.ID, "upsert")

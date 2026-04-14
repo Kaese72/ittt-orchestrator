@@ -117,6 +117,16 @@ The *next occurence* is a date and time, and not just a time.
 
 If no *next occurence* is set, the `rule` will not be triggered on a schedule.
 
+The *next occurence* is stored in the `rule` on the `next_occurence` attribute
+and should be presented to the user in the UI.
+
+When an update is made to a `rule`, the *next occurence* should be calculated
+and stored, then an event should be omitted such that the scheduler can fetch
+the value from the database and refresh the timer. 
+
+When a `rule` is evaluated, either via schedule or from an event, 
+the *next occurence* should be updated as well.
+
 ## Actions
 
 Each `rule` when triggered will result in a set of `actions` triggering.

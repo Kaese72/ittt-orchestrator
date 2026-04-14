@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/Kaese72/ittt-orchestrator/internal/config"
 	"github.com/Kaese72/ittt-orchestrator/restmodels"
@@ -146,12 +147,13 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 // loadRule fetches a single rule, its condition tree, and its actions.
 func (p *mariadbPersistence) loadRule(id int) (restmodels.Rule, error) {
 	var (
-		ruleName          string
-		ruleEnabledInt    int
-		rootConditionID   sql.NullInt64
+		ruleName        string
+		ruleEnabledInt  int
+		rootConditionID sql.NullInt64
+		nextOccurence   sql.NullTime
 	)
-	err := p.db.QueryRow(`SELECT name, enabled, root_condition_id FROM rules WHERE id = ?`, id).
-		Scan(&ruleName, &ruleEnabledInt, &rootConditionID)
+	err := p.db.QueryRow(`SELECT name, enabled, root_condition_id, next_occurence FROM rules WHERE id = ?`, id).
+		Scan(&ruleName, &ruleEnabledInt, &rootConditionID, &nextOccurence)
 	if err == sql.ErrNoRows {
 		return restmodels.Rule{}, huma.Error404NotFound(fmt.Sprintf("rule %d not found", id))
 	}
@@ -163,6 +165,10 @@ func (p *mariadbPersistence) loadRule(id int) (restmodels.Rule, error) {
 		ID:      id,
 		Name:    ruleName,
 		Enabled: ruleEnabledInt != 0,
+	}
+	if nextOccurence.Valid {
+		t := nextOccurence.Time
+		rule.NextOccurrence = &t
 	}
 
 	if rootConditionID.Valid {
@@ -431,6 +437,15 @@ func scanActions(rows *sql.Rows) ([]restmodels.Action, error) {
 		})
 	}
 	return actions, rows.Err()
+}
+
+func (p *mariadbPersistence) UpdateNextOccurrence(ruleID int, t *time.Time) error {
+	var val interface{}
+	if t != nil {
+		val = t.UTC()
+	}
+	_, err := p.db.Exec(`UPDATE rules SET next_occurence = ? WHERE id = ?`, val, ruleID)
+	return err
 }
 
 func emptyStringToNil(s string) interface{} {

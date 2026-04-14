@@ -29,7 +29,7 @@ func New(db persistence.PersistenceDB, orch *orchestrator.Orchestrator) *Schedul
 	}
 }
 
-// Start seeds the initial schedule by evaluating all enabled rules.
+// Start seeds the initial schedule from the next_occurence stored in the database.
 // Call this once after the scheduler is wired up.
 func (s *Scheduler) Start() {
 	rules, err := s.db.GetRules()
@@ -38,10 +38,10 @@ func (s *Scheduler) Start() {
 		return
 	}
 	for _, rule := range rules {
-		if !rule.Enabled {
+		if !rule.Enabled || rule.NextOccurrence == nil {
 			continue
 		}
-		s.reschedule(rule.ID)
+		s.scheduleAt(rule.ID, *rule.NextOccurrence)
 	}
 }
 
@@ -50,29 +50,21 @@ func (s *Scheduler) Start() {
 func (s *Scheduler) HandleRuleEvent(event eventmodels.RuleEvent) {
 	switch event.Event {
 	case "upsert":
-		s.reschedule(event.RuleID)
+		rule, err := s.db.GetRule(event.RuleID)
+		if err != nil {
+			log.Error(fmt.Sprintf("scheduler: failed to load rule %d: %s", event.RuleID, err.Error()), map[string]interface{}{})
+			return
+		}
+		if !rule.Enabled || rule.NextOccurrence == nil {
+			s.cancel(event.RuleID)
+			return
+		}
+		s.scheduleAt(event.RuleID, *rule.NextOccurrence)
 	case "deleted":
 		s.cancel(event.RuleID)
 	default:
 		log.Error(fmt.Sprintf("scheduler: unknown rule event %q for rule %d", event.Event, event.RuleID), map[string]interface{}{})
 	}
-}
-
-// reschedule evaluates the rule's condition tree (without triggering actions)
-// to determine its next occurrence and arms a timer accordingly. If the rule
-// has no next occurrence (or is not found/disabled) any existing timer is cancelled.
-func (s *Scheduler) reschedule(ruleID int) {
-	result, err := s.orch.EvaluateConditionTree(ruleID)
-	if err != nil {
-		log.Error(fmt.Sprintf("scheduler: failed to evaluate rule %d: %s", ruleID, err.Error()), map[string]interface{}{})
-		s.cancel(ruleID)
-		return
-	}
-	if result.NextOccurrence == nil {
-		s.cancel(ruleID)
-		return
-	}
-	s.scheduleAt(ruleID, *result.NextOccurrence)
 }
 
 // scheduleAt sets (or resets) the timer for ruleID to fire at the given time.
@@ -112,6 +104,9 @@ func (s *Scheduler) fire(ruleID int) {
 		return
 	}
 	log.Info(fmt.Sprintf("scheduler: rule %d evaluated: result=%v", ruleID, result.Result), map[string]interface{}{})
+	if err := s.db.UpdateNextOccurrence(ruleID, result.NextOccurrence); err != nil {
+		log.Error(fmt.Sprintf("scheduler: failed to persist next occurrence for rule %d: %s", ruleID, err.Error()), map[string]interface{}{})
+	}
 	if result.NextOccurrence != nil {
 		s.scheduleAt(ruleID, *result.NextOccurrence)
 	}

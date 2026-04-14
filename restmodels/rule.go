@@ -1,5 +1,7 @@
 package restmodels
 
+import "time"
+
 // ConditionTree is a node in the logical expression tree.
 // Each node holds a condition check and optional AND/OR child nodes.
 type ConditionTree struct {
@@ -32,9 +34,10 @@ type Action struct {
 
 // Rule is an ITTT automation rule.
 type Rule struct {
-	ID            int            `json:"id,omitempty"`
-	Name          string         `json:"name"`
-	Enabled       bool           `json:"enabled"`
-	ConditionTree *ConditionTree `json:"condition-tree,omitempty"`
-	Actions       []Action       `json:"actions,omitempty"`
+	ID             int            `json:"id,omitempty"`
+	Name           string         `json:"name"`
+	Enabled        bool           `json:"enabled"`
+	ConditionTree  *ConditionTree `json:"condition-tree,omitempty"`
+	Actions        []Action       `json:"actions,omitempty"`
+	NextOccurrence *time.Time     `json:"next-occurence,omitempty"`
 }
