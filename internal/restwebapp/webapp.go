@@ -67,11 +67,9 @@ func (w WebApp) CreateRule(ctx context.Context, input *struct {
 	if err != nil {
 		return nil, internalError(err)
 	}
-	evalResult, err := w.orch.EvaluateConditionTree(created.ID)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	if err := w.db.UpdateNextOccurrence(created.ID, evalResult.NextOccurrence); err != nil {
+	// Schedule for immediate evaluation so the rule takes effect right away.
+	now := time.Now()
+	if err := w.db.UpdateNextOccurrence(created.ID, &now); err != nil {
 		return nil, internalError(err)
 	}
 	w.publishRuleEvent(created.ID, "upsert")
@@ -87,11 +85,9 @@ func (w WebApp) UpdateRule(ctx context.Context, input *struct {
 	if err != nil {
 		return nil, internalError(err)
 	}
-	evalResult, err := w.orch.EvaluateConditionTree(updated.ID)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	if err := w.db.UpdateNextOccurrence(updated.ID, evalResult.NextOccurrence); err != nil {
+	// Schedule for immediate evaluation so the updated rule takes effect right away.
+	now := time.Now()
+	if err := w.db.UpdateNextOccurrence(updated.ID, &now); err != nil {
 		return nil, internalError(err)
 	}
 	w.publishRuleEvent(updated.ID, "upsert")
