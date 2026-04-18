@@ -32,6 +32,7 @@ type conditionRow struct {
 	Type           string
 	FromTime       sql.NullString
 	ToTime         sql.NullString
+	Timezone       sql.NullString
 	DeviceID       sql.NullInt64
 	Attribute      sql.NullString
 	Boolean        sql.NullInt64 // NULL = not set, 0 = false, 1 = true
@@ -42,7 +43,7 @@ type conditionRow struct {
 // loadConditions fetches all condition rows for a rule and returns them keyed by ID.
 func (p *mariadbPersistence) loadConditions(ruleID int) (map[int]conditionRow, error) {
 	rows, err := p.db.Query(`
-		SELECT id, type, from_time, to_time, device_id, attribute, boolean, and_condition_id, or_condition_id
+		SELECT id, type, from_time, to_time, timezone, device_id, attribute, boolean, and_condition_id, or_condition_id
 		FROM conditions WHERE rule_id = ?
 	`, ruleID)
 	if err != nil {
@@ -54,7 +55,7 @@ func (p *mariadbPersistence) loadConditions(ruleID int) (map[int]conditionRow, e
 	for rows.Next() {
 		var row conditionRow
 		if err := rows.Scan(
-			&row.ID, &row.Type, &row.FromTime, &row.ToTime, &row.DeviceID, &row.Attribute,
+			&row.ID, &row.Type, &row.FromTime, &row.ToTime, &row.Timezone, &row.DeviceID, &row.Attribute,
 			&row.Boolean, &row.AndConditionID, &row.OrConditionID,
 		); err != nil {
 			return nil, err
@@ -79,6 +80,9 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 	}
 	if row.ToTime.Valid {
 		tree.Condition.To = row.ToTime.String
+	}
+	if row.Timezone.Valid {
+		tree.Condition.Timezone = row.Timezone.String
 	}
 	if row.DeviceID.Valid {
 		tree.Condition.ID = int(row.DeviceID.Int64)
@@ -126,12 +130,13 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 
 	cond := tree.Condition
 	result, err := tx.Exec(`
-		INSERT INTO conditions (rule_id, type, from_time, to_time, device_id, attribute, boolean, and_condition_id, or_condition_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO conditions (rule_id, type, from_time, to_time, timezone, device_id, attribute, boolean, and_condition_id, or_condition_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ruleID,
 		cond.Type,
 		emptyStringToNil(cond.From),
 		emptyStringToNil(cond.To),
+		emptyStringToNil(cond.Timezone),
 		zeroIntToNil(cond.ID),
 		emptyStringToNil(cond.Attribute),
 		boolPtrToNullInt(cond.Boolean),

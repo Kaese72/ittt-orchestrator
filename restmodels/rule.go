@@ -14,8 +14,9 @@ type ConditionTree struct {
 type Condition struct {
 	Type string `json:"type"`
 	// Used by time-range
-	From string `json:"from,omitempty"`
-	To   string `json:"to,omitempty"`
+	From     string `json:"from,omitempty"`
+	To       string `json:"to,omitempty"`
+	Timezone string `json:"timezone,omitempty"`
 	// Used by device-id-attribute-boolean-eq
 	ID        int    `json:"id,omitempty"`
 	Attribute string `json:"attribute,omitempty"`
