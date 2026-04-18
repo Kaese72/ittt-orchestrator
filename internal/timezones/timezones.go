@@ -5,7 +5,10 @@
 // by time.LoadLocation.
 package timezones
 
-import "time"
+import (
+	"time"
+	_ "time/tzdata"
+)
 
 // all is the candidate list of canonical IANA timezone names.
 // Filtered into Available at package init time.
