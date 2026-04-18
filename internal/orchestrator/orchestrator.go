@@ -200,13 +200,9 @@ func evaluateCondition(cond restmodels.Condition, ctx *evalContext) EvalResult {
 			log.Error(fmt.Sprintf("invalid to time in time-range condition: %s", err.Error()), map[string]interface{}{})
 			return EvalResult{Result: false, Reason: fmt.Sprintf("invalid to time format %q", cond.To)}
 		}
-		loc := time.UTC
-		if cond.Timezone != "" {
-			if l, err := time.LoadLocation(cond.Timezone); err != nil {
-				log.Error(fmt.Sprintf("unknown timezone %q in time-range condition, falling back to UTC: %s", cond.Timezone, err.Error()), map[string]interface{}{})
-			} else {
-				loc = l
-			}
+		loc, err := time.LoadLocation(cond.Timezone)
+		if err != nil {
+			return EvalResult{Result: false, Reason: fmt.Sprintf("time-range condition has invalid timezone %q: %s", cond.Timezone, err.Error())}
 		}
 		now := time.Now().In(loc)
 		fromToday := time.Date(now.Year(), now.Month(), now.Day(), from.Hour(), from.Minute(), from.Second(), 0, loc)

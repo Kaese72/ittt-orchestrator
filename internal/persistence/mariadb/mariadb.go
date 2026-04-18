@@ -32,7 +32,7 @@ type conditionRow struct {
 	Type           string
 	FromTime       sql.NullString
 	ToTime         sql.NullString
-	Timezone       sql.NullString
+	Timezone       string
 	DeviceID       sql.NullInt64
 	Attribute      sql.NullString
 	Boolean        sql.NullInt64 // NULL = not set, 0 = false, 1 = true
@@ -55,8 +55,8 @@ func (p *mariadbPersistence) loadConditions(ruleID int) (map[int]conditionRow, e
 	for rows.Next() {
 		var row conditionRow
 		if err := rows.Scan(
-			&row.ID, &row.Type, &row.FromTime, &row.ToTime, &row.Timezone, &row.DeviceID, &row.Attribute,
-			&row.Boolean, &row.AndConditionID, &row.OrConditionID,
+			&row.ID, &row.Type, &row.FromTime, &row.ToTime, &row.Timezone, &row.DeviceID,
+			&row.Attribute, &row.Boolean, &row.AndConditionID, &row.OrConditionID,
 		); err != nil {
 			return nil, err
 		}
@@ -81,9 +81,7 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 	if row.ToTime.Valid {
 		tree.Condition.To = row.ToTime.String
 	}
-	if row.Timezone.Valid {
-		tree.Condition.Timezone = row.Timezone.String
-	}
+	tree.Condition.Timezone = row.Timezone
 	if row.DeviceID.Valid {
 		tree.Condition.ID = int(row.DeviceID.Int64)
 	}
@@ -136,7 +134,7 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 		cond.Type,
 		emptyStringToNil(cond.From),
 		emptyStringToNil(cond.To),
-		emptyStringToNil(cond.Timezone),
+		timezoneOrUTC(cond.Timezone),
 		zeroIntToNil(cond.ID),
 		emptyStringToNil(cond.Attribute),
 		boolPtrToNullInt(cond.Boolean),
@@ -451,6 +449,13 @@ func (p *mariadbPersistence) UpdateNextOccurrence(ruleID int, t *time.Time) erro
 	}
 	_, err := p.db.Exec(`UPDATE rules SET next_occurence = ? WHERE id = ?`, val, ruleID)
 	return err
+}
+
+func timezoneOrUTC(s string) string {
+	if s == "" {
+		return "UTC"
+	}
+	return s
 }
 
 func emptyStringToNil(s string) interface{} {

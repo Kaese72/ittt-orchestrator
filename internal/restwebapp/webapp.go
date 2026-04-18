@@ -20,6 +20,27 @@ func internalError(err error) error {
 	return huma.Error500InternalServerError(err.Error())
 }
 
+// validateConditionTree returns a 400 error if any time-range condition contains
+// an invalid or missing timezone.
+func validateConditionTree(tree *restmodels.ConditionTree) error {
+	if tree == nil {
+		return nil
+	}
+	if tree.Condition.Type == "time-range" {
+		tz := tree.Condition.Timezone
+		if tz == "" {
+			return huma.Error400BadRequest("time-range condition is missing a timezone")
+		}
+		if _, err := time.LoadLocation(tz); err != nil {
+			return huma.Error400BadRequest(fmt.Sprintf("time-range condition has invalid timezone %q: %s", tz, err.Error()))
+		}
+	}
+	if err := validateConditionTree(tree.And); err != nil {
+		return err
+	}
+	return validateConditionTree(tree.Or)
+}
+
 type WebApp struct {
 	db        persistence.PersistenceDB
 	orch      *orchestrator.Orchestrator
@@ -63,6 +84,9 @@ func (w WebApp) CreateRule(ctx context.Context, input *struct {
 }) (*struct {
 	Body restmodels.Rule
 }, error) {
+	if err := validateConditionTree(input.Body.ConditionTree); err != nil {
+		return nil, err
+	}
 	created, err := w.db.CreateRule(input.Body)
 	if err != nil {
 		return nil, internalError(err)
@@ -81,6 +105,9 @@ func (w WebApp) UpdateRule(ctx context.Context, input *struct {
 	RuleID int `path:"ruleID"`
 	Body   restmodels.Rule
 }) (*struct{ Body restmodels.Rule }, error) {
+	if err := validateConditionTree(input.Body.ConditionTree); err != nil {
+		return nil, err
+	}
 	updated, err := w.db.UpdateRule(input.RuleID, input.Body)
 	if err != nil {
 		return nil, internalError(err)
