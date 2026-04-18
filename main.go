@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	_ "time/tzdata"
 
 	log "github.com/Kaese72/huemie-lib/logging"
 	"github.com/Kaese72/ittt-orchestrator/internal/config"
@@ -74,6 +75,7 @@ func runAPI() {
 	api := humamux.New(router, humaConfig)
 
 	huma.Get(api, "/ittt-orchestrator/v0/status", webapp.GetStatus)
+	huma.Get(api, "/ittt-orchestrator/v0/globals/timezones", webapp.GetTimezones)
 	huma.Get(api, "/ittt-orchestrator/v0/rules", webapp.GetRules)
 	huma.Get(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}", webapp.GetRule)
 	huma.Post(api, "/ittt-orchestrator/v0/rules", webapp.CreateRule)

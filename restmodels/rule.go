@@ -1,6 +1,11 @@
 package restmodels
 
-import "time"
+import (
+	"fmt"
+	"time"
+
+	"github.com/danielgtaylor/huma/v2"
+)
 
 // ConditionTree is a node in the logical expression tree.
 // Each node holds a condition check and optional AND/OR child nodes.
@@ -21,6 +26,30 @@ type Condition struct {
 	ID        int    `json:"id,omitempty"`
 	Attribute string `json:"attribute,omitempty"`
 	Boolean   *bool  `json:"boolean,omitempty"`
+}
+
+// Resolve implements huma.Resolver. Huma calls this for every Condition in the
+// request body tree, so timezone validation is enforced automatically on all
+// create and update endpoints.
+func (c Condition) Resolve(_ huma.Context, prefix *huma.PathBuffer) []error {
+	if c.Type != "time-range" {
+		return nil
+	}
+	if c.Timezone == "" {
+		return []error{&huma.ErrorDetail{
+			Message:  "required for time-range conditions",
+			Location: prefix.String() + "/timezone",
+			Value:    c.Timezone,
+		}}
+	}
+	if _, err := time.LoadLocation(c.Timezone); err != nil {
+		return []error{&huma.ErrorDetail{
+			Message:  fmt.Sprintf("unrecognised timezone: %s", err),
+			Location: prefix.String() + "/timezone",
+			Value:    c.Timezone,
+		}}
+	}
+	return nil
 }
 
 // Action describes a capability trigger that fires when a rule's conditions are true.
