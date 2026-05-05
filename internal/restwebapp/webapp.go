@@ -3,7 +3,6 @@ package restwebapp
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
 	log "github.com/Kaese72/huemie-lib/logging"
@@ -20,7 +19,6 @@ func internalError(err error) error {
 	log.Error(err.Error(), map[string]interface{}{})
 	return huma.Error500InternalServerError(err.Error())
 }
-
 
 type WebApp struct {
 	db        persistence.PersistenceDB
@@ -201,9 +199,4 @@ func (w WebApp) GetStatus(_ context.Context, _ *struct{}) (*struct{ Body StatusO
 // GetTimezones returns the list of IANA timezone identifiers supported by this server.
 func (w WebApp) GetTimezones(_ context.Context, _ *struct{}) (*struct{ Body []string }, error) {
 	return &struct{ Body []string }{Body: timezones.Available}, nil
-}
-
-// deleteResponse is returned with a 204 No Content for deletes
-func deleteResponse() *huma.ErrorModel {
-	return &huma.ErrorModel{Status: http.StatusNoContent}
 }

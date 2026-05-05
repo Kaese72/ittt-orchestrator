@@ -98,8 +98,7 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 			c.Attribute = row.Attribute.String
 		}
 		if row.Boolean.Valid {
-			b := row.Boolean.Int64 != 0
-			c.Boolean = &b
+			c.Boolean = row.Boolean.Int64 != 0
 		}
 		cond = c
 	default:
@@ -163,7 +162,7 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 		timezone = "UTC"
 		deviceID = zeroIntToNil(c.ID)
 		attribute = emptyStringToNil(c.Attribute)
-		boolean = boolPtrToNullInt(c.Boolean)
+		boolean = boolToInt(c.Boolean)
 	default:
 		return 0, fmt.Errorf("unknown condition type: %T", c)
 	}
@@ -513,11 +512,8 @@ func zeroIntToNil(i int) interface{} {
 	return i
 }
 
-func boolPtrToNullInt(b *bool) interface{} {
-	if b == nil {
-		return nil
-	}
-	if *b {
+func boolToInt(b bool) int {
+	if b {
 		return 1
 	}
 	return 0

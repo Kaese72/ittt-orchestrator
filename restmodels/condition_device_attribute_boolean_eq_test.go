@@ -1,0 +1,9 @@
+package restmodels_test
+
+// TestDeviceAttributeBooleanEqCondition_MissingAttribute
+
+// DeviceAttributeBooleanEqCondition_NotBooleanAttribute
+
+// DeviceAttributeBooleanEqCondition_AttributeValueMismatch
+
+// DeviceAttributeBooleanEqCondition_AttributeValueMatch
