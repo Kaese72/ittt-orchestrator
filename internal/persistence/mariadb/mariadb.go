@@ -72,25 +72,42 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 	if !ok {
 		return nil
 	}
+
+	var cond restmodels.Condition
+	switch row.Type {
+	case "time-range":
+		c := restmodels.TimeRangeCondition{
+			Type:     row.Type,
+			Timezone: row.Timezone,
+		}
+		if row.FromTime.Valid {
+			c.From = row.FromTime.String
+		}
+		if row.ToTime.Valid {
+			c.To = row.ToTime.String
+		}
+		cond = c
+	case "device-id-attribute-boolean-eq":
+		c := restmodels.DeviceAttributeBooleanEqCondition{
+			Type: row.Type,
+		}
+		if row.DeviceID.Valid {
+			c.ID = int(row.DeviceID.Int64)
+		}
+		if row.Attribute.Valid {
+			c.Attribute = row.Attribute.String
+		}
+		if row.Boolean.Valid {
+			b := row.Boolean.Int64 != 0
+			c.Boolean = &b
+		}
+		cond = c
+	default:
+		return nil
+	}
+
 	tree := &restmodels.ConditionTree{
-		Condition: restmodels.Condition{Type: row.Type},
-	}
-	if row.FromTime.Valid {
-		tree.Condition.From = row.FromTime.String
-	}
-	if row.ToTime.Valid {
-		tree.Condition.To = row.ToTime.String
-	}
-	tree.Condition.Timezone = row.Timezone
-	if row.DeviceID.Valid {
-		tree.Condition.ID = int(row.DeviceID.Int64)
-	}
-	if row.Attribute.Valid {
-		tree.Condition.Attribute = row.Attribute.String
-	}
-	if row.Boolean.Valid {
-		b := row.Boolean.Int64 != 0
-		tree.Condition.Boolean = &b
+		Condition: restmodels.NewConditionUnion(cond),
 	}
 	if row.AndConditionID.Valid {
 		tree.And = buildConditionTree(condMap, int(row.AndConditionID.Int64))
@@ -126,18 +143,42 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 		orID = id
 	}
 
-	cond := tree.Condition
+	var (
+		condType  string
+		fromTime  interface{}
+		toTime    interface{}
+		timezone  string
+		deviceID  interface{}
+		attribute interface{}
+		boolean   interface{}
+	)
+	switch c := tree.Condition.Value().(type) {
+	case restmodels.TimeRangeCondition:
+		condType = "time-range"
+		fromTime = emptyStringToNil(c.From)
+		toTime = emptyStringToNil(c.To)
+		timezone = timezoneOrUTC(c.Timezone)
+	case restmodels.DeviceAttributeBooleanEqCondition:
+		condType = "device-id-attribute-boolean-eq"
+		timezone = "UTC"
+		deviceID = zeroIntToNil(c.ID)
+		attribute = emptyStringToNil(c.Attribute)
+		boolean = boolPtrToNullInt(c.Boolean)
+	default:
+		return 0, fmt.Errorf("unknown condition type: %T", c)
+	}
+
 	result, err := tx.Exec(`
 		INSERT INTO conditions (rule_id, type, from_time, to_time, timezone, device_id, attribute, boolean, and_condition_id, or_condition_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ruleID,
-		cond.Type,
-		emptyStringToNil(cond.From),
-		emptyStringToNil(cond.To),
-		timezoneOrUTC(cond.Timezone),
-		zeroIntToNil(cond.ID),
-		emptyStringToNil(cond.Attribute),
-		boolPtrToNullInt(cond.Boolean),
+		condType,
+		fromTime,
+		toTime,
+		timezone,
+		deviceID,
+		attribute,
+		boolean,
 		andID,
 		orID,
 	)

@@ -104,7 +104,7 @@ func referencesDevice(tree *restmodels.ConditionTree, deviceID int) bool {
 	if tree == nil {
 		return false
 	}
-	if tree.Condition.Type == "device-id-attribute-boolean-eq" && tree.Condition.ID == deviceID {
+	if c, ok := tree.Condition.Value().(restmodels.DeviceAttributeBooleanEqCondition); ok && c.ID == deviceID {
 		return true
 	}
 	return referencesDevice(tree.And, deviceID) || referencesDevice(tree.Or, deviceID)
@@ -155,7 +155,7 @@ func evaluateTree(tree *restmodels.ConditionTree, ctx *evalContext) EvalResult {
 		return EvalResult{Result: true}
 	}
 
-	node := evaluateCondition(tree.Condition, ctx)
+	node := evaluateCondition(tree.Condition.Value(), ctx)
 	nextOcc := node.NextOccurrence
 
 	combined := node
@@ -188,21 +188,21 @@ func evaluateTree(tree *restmodels.ConditionTree, ctx *evalContext) EvalResult {
 }
 
 func evaluateCondition(cond restmodels.Condition, ctx *evalContext) EvalResult {
-	switch cond.Type {
-	case "time-range":
-		from, err := time.Parse("15:04:05", cond.From)
+	switch c := cond.(type) {
+	case restmodels.TimeRangeCondition:
+		from, err := time.Parse("15:04:05", c.From)
 		if err != nil {
 			log.Error(fmt.Sprintf("invalid from time in time-range condition: %s", err.Error()), map[string]interface{}{})
-			return EvalResult{Result: false, Reason: fmt.Sprintf("invalid from time format %q", cond.From)}
+			return EvalResult{Result: false, Reason: fmt.Sprintf("invalid from time format %q", c.From)}
 		}
-		to, err := time.Parse("15:04:05", cond.To)
+		to, err := time.Parse("15:04:05", c.To)
 		if err != nil {
 			log.Error(fmt.Sprintf("invalid to time in time-range condition: %s", err.Error()), map[string]interface{}{})
-			return EvalResult{Result: false, Reason: fmt.Sprintf("invalid to time format %q", cond.To)}
+			return EvalResult{Result: false, Reason: fmt.Sprintf("invalid to time format %q", c.To)}
 		}
-		loc, err := time.LoadLocation(cond.Timezone)
+		loc, err := time.LoadLocation(c.Timezone)
 		if err != nil {
-			return EvalResult{Result: false, Reason: fmt.Sprintf("time-range condition has invalid timezone %q: %s", cond.Timezone, err.Error())}
+			return EvalResult{Result: false, Reason: fmt.Sprintf("time-range condition has invalid timezone %q: %s", c.Timezone, err.Error())}
 		}
 		now := time.Now().In(loc)
 		fromToday := time.Date(now.Year(), now.Month(), now.Day(), from.Hour(), from.Minute(), from.Second(), 0, loc)
@@ -239,32 +239,32 @@ func evaluateCondition(cond restmodels.Condition, ctx *evalContext) EvalResult {
 		if !inRange {
 			return EvalResult{
 				Result:         false,
-				Reason:         fmt.Sprintf("current time %s is outside range %s–%s", now.Format("15:04:05"), cond.From, cond.To),
+				Reason:         fmt.Sprintf("current time %s is outside range %s–%s", now.Format("15:04:05"), c.From, c.To),
 				NextOccurrence: &nextOcc,
 			}
 		}
 		return EvalResult{Result: true, NextOccurrence: &nextOcc}
 
-	case "device-id-attribute-boolean-eq":
-		if cond.Boolean == nil {
-			return EvalResult{Result: false, Reason: fmt.Sprintf("device %d.%s: no expected value configured", cond.ID, cond.Attribute)}
+	case restmodels.DeviceAttributeBooleanEqCondition:
+		if c.Boolean == nil {
+			return EvalResult{Result: false, Reason: fmt.Sprintf("device %d.%s: no expected value configured", c.ID, c.Attribute)}
 		}
-		attrValue, err := ctx.getDeviceBooleanAttribute(cond.ID, cond.Attribute)
+		attrValue, err := ctx.getDeviceBooleanAttribute(c.ID, c.Attribute)
 		if err != nil {
-			log.Error(fmt.Sprintf("failed to fetch device %d attribute %q: %s", cond.ID, cond.Attribute, err.Error()), map[string]interface{}{})
-			return EvalResult{Result: false, Reason: fmt.Sprintf("device %d.%s: fetch error: %s", cond.ID, cond.Attribute, err.Error())}
+			log.Error(fmt.Sprintf("failed to fetch device %d attribute %q: %s", c.ID, c.Attribute, err.Error()), map[string]interface{}{})
+			return EvalResult{Result: false, Reason: fmt.Sprintf("device %d.%s: fetch error: %s", c.ID, c.Attribute, err.Error())}
 		}
 		if attrValue == nil {
-			return EvalResult{Result: false, Reason: fmt.Sprintf("device %d has no attribute %q", cond.ID, cond.Attribute)}
+			return EvalResult{Result: false, Reason: fmt.Sprintf("device %d has no attribute %q", c.ID, c.Attribute)}
 		}
-		if *attrValue != *cond.Boolean {
-			return EvalResult{Result: false, Reason: fmt.Sprintf("device %d.%s is %v, expected %v", cond.ID, cond.Attribute, *attrValue, *cond.Boolean)}
+		if *attrValue != *c.Boolean {
+			return EvalResult{Result: false, Reason: fmt.Sprintf("device %d.%s is %v, expected %v", c.ID, c.Attribute, *attrValue, *c.Boolean)}
 		}
 		return EvalResult{Result: true}
 
 	default:
-		log.Error(fmt.Sprintf("unknown condition type: %s", cond.Type), map[string]interface{}{})
-		return EvalResult{Result: false, Reason: fmt.Sprintf("unknown condition type %q", cond.Type)}
+		log.Error(fmt.Sprintf("unknown condition type: %T", c), map[string]interface{}{})
+		return EvalResult{Result: false, Reason: fmt.Sprintf("unknown condition type %T", c)}
 	}
 }
 

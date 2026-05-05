@@ -1,7 +1,9 @@
 package restmodels
 
 import (
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -10,31 +12,27 @@ import (
 // ConditionTree is a node in the logical expression tree.
 // Each node holds a condition check and optional AND/OR child nodes.
 type ConditionTree struct {
-	Condition Condition      `json:"condition"`
+	Condition ConditionUnion `json:"condition"`
 	And       *ConditionTree `json:"and,omitempty"`
 	Or        *ConditionTree `json:"or,omitempty"`
 }
 
-// Condition is a single boolean check within a ConditionTree node.
-type Condition struct {
-	Type string `json:"type"`
-	// Used by time-range
-	From     string `json:"from,omitempty"`
-	To       string `json:"to,omitempty"`
-	Timezone string `json:"timezone,omitempty"`
-	// Used by device-id-attribute-boolean-eq
-	ID        int    `json:"id,omitempty"`
-	Attribute string `json:"attribute,omitempty"`
-	Boolean   *bool  `json:"boolean,omitempty"`
+// Condition is the sealed interface for all condition types.
+type Condition interface {
+	isCondition()
 }
 
-// Resolve implements huma.Resolver. Huma calls this for every Condition in the
-// request body tree, so timezone validation is enforced automatically on all
-// create and update endpoints.
-func (c Condition) Resolve(_ huma.Context, prefix *huma.PathBuffer) []error {
-	if c.Type != "time-range" {
-		return nil
-	}
+// TimeRangeCondition checks whether the current time falls within a daily window.
+type TimeRangeCondition struct {
+	Type     string `json:"type"`
+	From     string `json:"from"     format:"time" pattern:"^([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$" patternDescription:"HH:MM:SS" example:"06:00:00"`
+	To       string `json:"to"       format:"time" pattern:"^([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$" patternDescription:"HH:MM:SS" example:"22:00:00"`
+	Timezone string `json:"timezone" doc:"IANA timezone identifier" example:"Europe/Stockholm"`
+}
+
+func (TimeRangeCondition) isCondition() {}
+
+func (c TimeRangeCondition) Resolve(_ huma.Context, prefix *huma.PathBuffer) []error {
 	if c.Timezone == "" {
 		return []error{&huma.ErrorDetail{
 			Message:  "required for time-range conditions",
@@ -48,6 +46,83 @@ func (c Condition) Resolve(_ huma.Context, prefix *huma.PathBuffer) []error {
 			Location: prefix.String() + "/timezone",
 			Value:    c.Timezone,
 		}}
+	}
+	return nil
+}
+
+// DeviceAttributeBooleanEqCondition checks that a device attribute equals a boolean value.
+type DeviceAttributeBooleanEqCondition struct {
+	Type      string `json:"type"`
+	ID        int    `json:"id"`
+	Attribute string `json:"attribute"`
+	Boolean   *bool  `json:"boolean"`
+}
+
+func (DeviceAttributeBooleanEqCondition) isCondition() {}
+
+// ConditionUnion is a JSON discriminated union of Condition types, dispatching on the "type" field.
+type ConditionUnion struct {
+	value Condition
+}
+
+func NewConditionUnion(c Condition) ConditionUnion {
+	return ConditionUnion{value: c}
+}
+
+func (u ConditionUnion) Value() Condition {
+	return u.value
+}
+
+func (u ConditionUnion) MarshalJSON() ([]byte, error) {
+	return json.Marshal(u.value)
+}
+
+func (u *ConditionUnion) UnmarshalJSON(data []byte) error {
+	var probe struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return err
+	}
+	switch probe.Type {
+	case "time-range":
+		var c TimeRangeCondition
+		if err := json.Unmarshal(data, &c); err != nil {
+			return err
+		}
+		u.value = c
+	case "device-id-attribute-boolean-eq":
+		var c DeviceAttributeBooleanEqCondition
+		if err := json.Unmarshal(data, &c); err != nil {
+			return err
+		}
+		u.value = c
+	default:
+		return fmt.Errorf("unknown condition type: %q", probe.Type)
+	}
+	return nil
+}
+
+// Schema implements huma.SchemaProvider, emitting a oneOf schema with a type discriminator.
+func (ConditionUnion) Schema(r huma.Registry) *huma.Schema {
+	trRef := r.Schema(reflect.TypeOf(TimeRangeCondition{}), false, "TimeRangeCondition")
+	daRef := r.Schema(reflect.TypeOf(DeviceAttributeBooleanEqCondition{}), false, "DeviceAttributeBooleanEqCondition")
+	return &huma.Schema{
+		OneOf: []*huma.Schema{trRef, daRef},
+		Discriminator: &huma.Discriminator{
+			PropertyName: "type",
+			Mapping: map[string]string{
+				"time-range":                     trRef.Ref,
+				"device-id-attribute-boolean-eq": daRef.Ref,
+			},
+		},
+	}
+}
+
+// Resolve implements huma.ResolverWithPath, delegating to the inner condition if it supports validation.
+func (u ConditionUnion) Resolve(ctx huma.Context, prefix *huma.PathBuffer) []error {
+	if r, ok := u.value.(huma.ResolverWithPath); ok {
+		return r.Resolve(ctx, prefix)
 	}
 	return nil
 }
