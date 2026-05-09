@@ -33,6 +33,7 @@ type conditionRow struct {
 	FromTime       sql.NullString
 	ToTime         sql.NullString
 	Timezone       string
+	Days           sql.NullInt64 // bitmask of active weekdays (bit N = time.Weekday(N)), used by time-range-days
 	DeviceID       sql.NullInt64
 	Attribute      sql.NullString
 	Boolean        sql.NullInt64 // NULL = not set, 0 = false, 1 = true
@@ -43,7 +44,7 @@ type conditionRow struct {
 // loadConditions fetches all condition rows for a rule and returns them keyed by ID.
 func (p *mariadbPersistence) loadConditions(ruleID int) (map[int]conditionRow, error) {
 	rows, err := p.db.Query(`
-		SELECT id, type, from_time, to_time, timezone, device_id, attribute, boolean, and_condition_id, or_condition_id
+		SELECT id, type, from_time, to_time, timezone, days, device_id, attribute, boolean, and_condition_id, or_condition_id
 		FROM conditions WHERE rule_id = ?
 	`, ruleID)
 	if err != nil {
@@ -55,7 +56,7 @@ func (p *mariadbPersistence) loadConditions(ruleID int) (map[int]conditionRow, e
 	for rows.Next() {
 		var row conditionRow
 		if err := rows.Scan(
-			&row.ID, &row.Type, &row.FromTime, &row.ToTime, &row.Timezone, &row.DeviceID,
+			&row.ID, &row.Type, &row.FromTime, &row.ToTime, &row.Timezone, &row.Days, &row.DeviceID,
 			&row.Attribute, &row.Boolean, &row.AndConditionID, &row.OrConditionID,
 		); err != nil {
 			return nil, err
@@ -85,6 +86,21 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 		}
 		if row.ToTime.Valid {
 			c.To = row.ToTime.String
+		}
+		cond = c
+	case "time-range-days":
+		c := restmodels.TimeRangeDaysCondition{
+			Type:     row.Type,
+			Timezone: row.Timezone,
+		}
+		if row.FromTime.Valid {
+			c.From = row.FromTime.String
+		}
+		if row.ToTime.Valid {
+			c.To = row.ToTime.String
+		}
+		if row.Days.Valid {
+			c.Days = bitmaskToDays(uint8(row.Days.Int64))
 		}
 		cond = c
 	case "device-id-attribute-boolean-eq":
@@ -147,6 +163,7 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 		fromTime  interface{}
 		toTime    interface{}
 		timezone  string
+		days      interface{}
 		deviceID  interface{}
 		attribute interface{}
 		boolean   interface{}
@@ -157,6 +174,14 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 		fromTime = emptyStringToNil(c.From)
 		toTime = emptyStringToNil(c.To)
 		timezone = timezoneOrUTC(c.Timezone)
+	case restmodels.TimeRangeDaysCondition:
+		condType = "time-range-days"
+		fromTime = emptyStringToNil(c.From)
+		toTime = emptyStringToNil(c.To)
+		timezone = timezoneOrUTC(c.Timezone)
+		if len(c.Days) > 0 {
+			days = daysToBitmask(c.Days)
+		}
 	case restmodels.DeviceAttributeBooleanEqCondition:
 		condType = "device-id-attribute-boolean-eq"
 		timezone = "UTC"
@@ -168,13 +193,14 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 	}
 
 	result, err := tx.Exec(`
-		INSERT INTO conditions (rule_id, type, from_time, to_time, timezone, device_id, attribute, boolean, and_condition_id, or_condition_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO conditions (rule_id, type, from_time, to_time, timezone, days, device_id, attribute, boolean, and_condition_id, or_condition_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ruleID,
 		condType,
 		fromTime,
 		toTime,
 		timezone,
+		days,
 		deviceID,
 		attribute,
 		boolean,
@@ -517,6 +543,45 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// orderedWeekdays defines the canonical day order used for bitmask decode.
+// Bit N corresponds to time.Weekday(N): Sunday=0, Monday=1, …, Saturday=6.
+var orderedWeekdays = []struct {
+	name string
+	wd   time.Weekday
+}{
+	{"monday", time.Monday},
+	{"tuesday", time.Tuesday},
+	{"wednesday", time.Wednesday},
+	{"thursday", time.Thursday},
+	{"friday", time.Friday},
+	{"saturday", time.Saturday},
+	{"sunday", time.Sunday},
+}
+
+func daysToBitmask(days []string) uint8 {
+	nameToWd := make(map[string]time.Weekday, len(orderedWeekdays))
+	for _, e := range orderedWeekdays {
+		nameToWd[e.name] = e.wd
+	}
+	var mask uint8
+	for _, d := range days {
+		if wd, ok := nameToWd[d]; ok {
+			mask |= 1 << uint(wd)
+		}
+	}
+	return mask
+}
+
+func bitmaskToDays(mask uint8) []string {
+	var days []string
+	for _, e := range orderedWeekdays {
+		if mask&(1<<uint(e.wd)) != 0 {
+			days = append(days, e.name)
+		}
+	}
+	return days
 }
 
 func marshalArgs(args map[string]any) ([]byte, error) {

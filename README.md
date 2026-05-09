@@ -67,39 +67,10 @@ Each `condition` has a type leading to different functionality and looks for dif
 
 ### Condition types
 
-Determined by the `type` attribute of a `condition`. The subsections describe what the different options lead to.
+Determined by the `type` attribute of a `condition`. 
 
-#### "time-range"
+See [README.condition-types.md](README.condition-types.md) for details about each condition
 
-True when the current time (UTC) falls within the range defined by `from` (inclusive) and `to` (exclusive).
-
-Both `from` and `to` are strings in `HH:MM:SS` format.
-
-If `from` is earlier than `to` the range falls within a single day — for example `"from": "06:00:00", "to": "22:00:00"` is true between 06:00 and 22:00.
-
-If `from` is later than `to` the range wraps around midnight — for example `"from": "22:00:00", "to": "06:00:00"` is true between 22:00 and 06:00 the following morning.
-
-When evaluated, this emits a *next occurence* matching
-* `from` if we are outside the range
-  * Ie. the *node* evalautes to false
-* `to` if we are inside the range
-  * Ie. the *node* evaluates to *true*
-
-The `from` and `to` may be the next day depending on when we are
-within or outside the range we are.
-
-#### "device-id-attribute-boolean-eq"
-
-True when the device identified by the id stored in `id` has an attribute matching 
-the name stored in `attribute` which has a boolean state that matches what is stored
-in `boolean`.
-
-If any of these are not true, the `condition` evaluates to `false`. For example, when
-* The device identified by `id` does not exist
-* The device identified by `id` does not have the "active" attribute
-* The named attribute does not have a boolean state (null)
-
-This type never emits any *next occurence* when used in a `condition tree`.
 
 ## Scheduling
 

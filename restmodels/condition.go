@@ -139,6 +139,12 @@ func (u *ConditionUnion) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		u.value = c
+	case "time-range-days":
+		var c TimeRangeDaysCondition
+		if err := json.Unmarshal(data, &c); err != nil {
+			return err
+		}
+		u.value = c
 	case "device-id-attribute-boolean-eq":
 		var c DeviceAttributeBooleanEqCondition
 		if err := json.Unmarshal(data, &c); err != nil {
@@ -154,21 +160,26 @@ func (u *ConditionUnion) UnmarshalJSON(data []byte) error {
 // Schema implements huma.SchemaProvider, emitting a oneOf schema with a type discriminator.
 func (ConditionUnion) Schema(r huma.Registry) *huma.Schema {
 	trRef := r.Schema(reflect.TypeOf(TimeRangeCondition{}), true, "TimeRangeCondition")
+	trdRef := r.Schema(reflect.TypeOf(TimeRangeDaysCondition{}), true, "TimeRangeDaysCondition")
 	daRef := r.Schema(reflect.TypeOf(DeviceAttributeBooleanEqCondition{}), true, "DeviceAttributeBooleanEqCondition")
 	// Set titles on the registered component schemas so UI tools display the
 	// type names instead of the fallback "object" label in the oneOf selector.
 	if s := r.SchemaFromRef(trRef.Ref); s != nil {
 		s.Title = "TimeRangeCondition"
 	}
+	if s := r.SchemaFromRef(trdRef.Ref); s != nil {
+		s.Title = "TimeRangeDaysCondition"
+	}
 	if s := r.SchemaFromRef(daRef.Ref); s != nil {
 		s.Title = "DeviceAttributeBooleanEqCondition"
 	}
 	return &huma.Schema{
-		OneOf: []*huma.Schema{trRef, daRef},
+		OneOf: []*huma.Schema{trRef, trdRef, daRef},
 		Discriminator: &huma.Discriminator{
 			PropertyName: "type",
 			Mapping: map[string]string{
 				"time-range":                     trRef.Ref,
+				"time-range-days":                trdRef.Ref,
 				"device-id-attribute-boolean-eq": daRef.Ref,
 			},
 		},
