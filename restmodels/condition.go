@@ -151,6 +151,54 @@ func (u *ConditionUnion) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		u.value = c
+	case "device-id-attribute-number-eq":
+		var c DeviceAttributeNumberEqCondition
+		if err := json.Unmarshal(data, &c); err != nil {
+			return err
+		}
+		u.value = c
+	case "device-id-attribute-number-eq-margin":
+		var c DeviceAttributeNumberEqMarginCondition
+		if err := json.Unmarshal(data, &c); err != nil {
+			return err
+		}
+		u.value = c
+	case "device-id-attribute-number-lt":
+		var c DeviceAttributeNumberLtCondition
+		if err := json.Unmarshal(data, &c); err != nil {
+			return err
+		}
+		u.value = c
+	case "device-id-attribute-number-gt":
+		var c DeviceAttributeNumberGtCondition
+		if err := json.Unmarshal(data, &c); err != nil {
+			return err
+		}
+		u.value = c
+	case "device-id-attribute-number-lte":
+		var c DeviceAttributeNumberLteCondition
+		if err := json.Unmarshal(data, &c); err != nil {
+			return err
+		}
+		u.value = c
+	case "device-id-attribute-number-gte":
+		var c DeviceAttributeNumberGteCondition
+		if err := json.Unmarshal(data, &c); err != nil {
+			return err
+		}
+		u.value = c
+	case "device-id-attribute-text-eq":
+		var c DeviceAttributeTextEqCondition
+		if err := json.Unmarshal(data, &c); err != nil {
+			return err
+		}
+		u.value = c
+	case "device-id-attribute-text-substring":
+		var c DeviceAttributeTextSubstringCondition
+		if err := json.Unmarshal(data, &c); err != nil {
+			return err
+		}
+		u.value = c
 	default:
 		return fmt.Errorf("unknown condition type: %q", probe.Type)
 	}
@@ -159,29 +207,40 @@ func (u *ConditionUnion) UnmarshalJSON(data []byte) error {
 
 // Schema implements huma.SchemaProvider, emitting a oneOf schema with a type discriminator.
 func (ConditionUnion) Schema(r huma.Registry) *huma.Schema {
-	trRef := r.Schema(reflect.TypeOf(TimeRangeCondition{}), true, "TimeRangeCondition")
-	trdRef := r.Schema(reflect.TypeOf(TimeRangeDaysCondition{}), true, "TimeRangeDaysCondition")
-	daRef := r.Schema(reflect.TypeOf(DeviceAttributeBooleanEqCondition{}), true, "DeviceAttributeBooleanEqCondition")
-	// Set titles on the registered component schemas so UI tools display the
-	// type names instead of the fallback "object" label in the oneOf selector.
-	if s := r.SchemaFromRef(trRef.Ref); s != nil {
-		s.Title = "TimeRangeCondition"
+	type schemaEntry struct {
+		typeName string
+		goType   reflect.Type
 	}
-	if s := r.SchemaFromRef(trdRef.Ref); s != nil {
-		s.Title = "TimeRangeDaysCondition"
+	entries := []schemaEntry{
+		{"time-range", reflect.TypeOf(TimeRangeCondition{})},
+		{"time-range-days", reflect.TypeOf(TimeRangeDaysCondition{})},
+		{"device-id-attribute-boolean-eq", reflect.TypeOf(DeviceAttributeBooleanEqCondition{})},
+		{"device-id-attribute-number-eq", reflect.TypeOf(DeviceAttributeNumberEqCondition{})},
+		{"device-id-attribute-number-eq-margin", reflect.TypeOf(DeviceAttributeNumberEqMarginCondition{})},
+		{"device-id-attribute-number-lt", reflect.TypeOf(DeviceAttributeNumberLtCondition{})},
+		{"device-id-attribute-number-gt", reflect.TypeOf(DeviceAttributeNumberGtCondition{})},
+		{"device-id-attribute-number-lte", reflect.TypeOf(DeviceAttributeNumberLteCondition{})},
+		{"device-id-attribute-number-gte", reflect.TypeOf(DeviceAttributeNumberGteCondition{})},
+		{"device-id-attribute-text-eq", reflect.TypeOf(DeviceAttributeTextEqCondition{})},
+		{"device-id-attribute-text-substring", reflect.TypeOf(DeviceAttributeTextSubstringCondition{})},
 	}
-	if s := r.SchemaFromRef(daRef.Ref); s != nil {
-		s.Title = "DeviceAttributeBooleanEqCondition"
+
+	oneOf := make([]*huma.Schema, 0, len(entries))
+	mapping := make(map[string]string, len(entries))
+	for _, e := range entries {
+		ref := r.Schema(e.goType, true, e.goType.Name())
+		if s := r.SchemaFromRef(ref.Ref); s != nil {
+			s.Title = e.goType.Name()
+		}
+		oneOf = append(oneOf, ref)
+		mapping[e.typeName] = ref.Ref
 	}
+
 	return &huma.Schema{
-		OneOf: []*huma.Schema{trRef, trdRef, daRef},
+		OneOf: oneOf,
 		Discriminator: &huma.Discriminator{
 			PropertyName: "type",
-			Mapping: map[string]string{
-				"time-range":                     trRef.Ref,
-				"time-range-days":                trdRef.Ref,
-				"device-id-attribute-boolean-eq": daRef.Ref,
-			},
+			Mapping:      mapping,
 		},
 	}
 }

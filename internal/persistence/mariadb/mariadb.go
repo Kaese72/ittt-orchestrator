@@ -33,10 +33,13 @@ type conditionRow struct {
 	FromTime       sql.NullString
 	ToTime         sql.NullString
 	Timezone       string
-	Days           sql.NullInt64 // bitmask of active weekdays (bit N = time.Weekday(N)), used by time-range-days
+	Days           sql.NullInt64   // bitmask of active weekdays (bit N = time.Weekday(N)), used by time-range-days
 	DeviceID       sql.NullInt64
 	Attribute      sql.NullString
-	Boolean        sql.NullInt64 // NULL = not set, 0 = false, 1 = true
+	Boolean        sql.NullInt64   // NULL = not set, 0 = false, 1 = true
+	NumericValue   sql.NullFloat64 // for device-id-attribute-number-*
+	NumericMargin  sql.NullFloat64 // for device-id-attribute-number-eq-margin
+	TextValue      sql.NullString  // for device-id-attribute-text-*
 	AndConditionID sql.NullInt64
 	OrConditionID  sql.NullInt64
 }
@@ -44,7 +47,9 @@ type conditionRow struct {
 // loadConditions fetches all condition rows for a rule and returns them keyed by ID.
 func (p *mariadbPersistence) loadConditions(ruleID int) (map[int]conditionRow, error) {
 	rows, err := p.db.Query(`
-		SELECT id, type, from_time, to_time, timezone, days, device_id, attribute, boolean, and_condition_id, or_condition_id
+		SELECT id, type, from_time, to_time, timezone, days, device_id, attribute, boolean,
+		       numeric_value, numeric_margin, text_value,
+		       and_condition_id, or_condition_id
 		FROM conditions WHERE rule_id = ?
 	`, ruleID)
 	if err != nil {
@@ -57,7 +62,9 @@ func (p *mariadbPersistence) loadConditions(ruleID int) (map[int]conditionRow, e
 		var row conditionRow
 		if err := rows.Scan(
 			&row.ID, &row.Type, &row.FromTime, &row.ToTime, &row.Timezone, &row.Days, &row.DeviceID,
-			&row.Attribute, &row.Boolean, &row.AndConditionID, &row.OrConditionID,
+			&row.Attribute, &row.Boolean,
+			&row.NumericValue, &row.NumericMargin, &row.TextValue,
+			&row.AndConditionID, &row.OrConditionID,
 		); err != nil {
 			return nil, err
 		}
@@ -117,6 +124,105 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 			c.Boolean = row.Boolean.Int64 != 0
 		}
 		cond = c
+	case "device-id-attribute-number-eq":
+		c := restmodels.DeviceAttributeNumberEqCondition{Type: row.Type}
+		if row.DeviceID.Valid {
+			c.ID = int(row.DeviceID.Int64)
+		}
+		if row.Attribute.Valid {
+			c.Attribute = row.Attribute.String
+		}
+		if row.NumericValue.Valid {
+			c.Value = row.NumericValue.Float64
+		}
+		cond = c
+	case "device-id-attribute-number-eq-margin":
+		c := restmodels.DeviceAttributeNumberEqMarginCondition{Type: row.Type}
+		if row.DeviceID.Valid {
+			c.ID = int(row.DeviceID.Int64)
+		}
+		if row.Attribute.Valid {
+			c.Attribute = row.Attribute.String
+		}
+		if row.NumericValue.Valid {
+			c.Value = row.NumericValue.Float64
+		}
+		if row.NumericMargin.Valid {
+			c.Margin = row.NumericMargin.Float64
+		}
+		cond = c
+	case "device-id-attribute-number-lt":
+		c := restmodels.DeviceAttributeNumberLtCondition{Type: row.Type}
+		if row.DeviceID.Valid {
+			c.ID = int(row.DeviceID.Int64)
+		}
+		if row.Attribute.Valid {
+			c.Attribute = row.Attribute.String
+		}
+		if row.NumericValue.Valid {
+			c.Value = row.NumericValue.Float64
+		}
+		cond = c
+	case "device-id-attribute-number-gt":
+		c := restmodels.DeviceAttributeNumberGtCondition{Type: row.Type}
+		if row.DeviceID.Valid {
+			c.ID = int(row.DeviceID.Int64)
+		}
+		if row.Attribute.Valid {
+			c.Attribute = row.Attribute.String
+		}
+		if row.NumericValue.Valid {
+			c.Value = row.NumericValue.Float64
+		}
+		cond = c
+	case "device-id-attribute-number-lte":
+		c := restmodels.DeviceAttributeNumberLteCondition{Type: row.Type}
+		if row.DeviceID.Valid {
+			c.ID = int(row.DeviceID.Int64)
+		}
+		if row.Attribute.Valid {
+			c.Attribute = row.Attribute.String
+		}
+		if row.NumericValue.Valid {
+			c.Value = row.NumericValue.Float64
+		}
+		cond = c
+	case "device-id-attribute-number-gte":
+		c := restmodels.DeviceAttributeNumberGteCondition{Type: row.Type}
+		if row.DeviceID.Valid {
+			c.ID = int(row.DeviceID.Int64)
+		}
+		if row.Attribute.Valid {
+			c.Attribute = row.Attribute.String
+		}
+		if row.NumericValue.Valid {
+			c.Value = row.NumericValue.Float64
+		}
+		cond = c
+	case "device-id-attribute-text-eq":
+		c := restmodels.DeviceAttributeTextEqCondition{Type: row.Type}
+		if row.DeviceID.Valid {
+			c.ID = int(row.DeviceID.Int64)
+		}
+		if row.Attribute.Valid {
+			c.Attribute = row.Attribute.String
+		}
+		if row.TextValue.Valid {
+			c.Value = row.TextValue.String
+		}
+		cond = c
+	case "device-id-attribute-text-substring":
+		c := restmodels.DeviceAttributeTextSubstringCondition{Type: row.Type}
+		if row.DeviceID.Valid {
+			c.ID = int(row.DeviceID.Int64)
+		}
+		if row.Attribute.Valid {
+			c.Attribute = row.Attribute.String
+		}
+		if row.TextValue.Valid {
+			c.Value = row.TextValue.String
+		}
+		cond = c
 	default:
 		return nil
 	}
@@ -159,14 +265,17 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 	}
 
 	var (
-		condType  string
-		fromTime  interface{}
-		toTime    interface{}
-		timezone  string
-		days      interface{}
-		deviceID  interface{}
-		attribute interface{}
-		boolean   interface{}
+		condType      string
+		fromTime      interface{}
+		toTime        interface{}
+		timezone      string
+		days          interface{}
+		deviceID      interface{}
+		attribute     interface{}
+		boolean       interface{}
+		numericValue  interface{}
+		numericMargin interface{}
+		textValue     interface{}
 	)
 	switch c := tree.Condition.Value().(type) {
 	case restmodels.TimeRangeCondition:
@@ -188,13 +297,64 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 		deviceID = zeroIntToNil(c.ID)
 		attribute = emptyStringToNil(c.Attribute)
 		boolean = boolToInt(c.Boolean)
+	case restmodels.DeviceAttributeNumberEqCondition:
+		condType = "device-id-attribute-number-eq"
+		timezone = "UTC"
+		deviceID = zeroIntToNil(c.ID)
+		attribute = emptyStringToNil(c.Attribute)
+		numericValue = c.Value
+	case restmodels.DeviceAttributeNumberEqMarginCondition:
+		condType = "device-id-attribute-number-eq-margin"
+		timezone = "UTC"
+		deviceID = zeroIntToNil(c.ID)
+		attribute = emptyStringToNil(c.Attribute)
+		numericValue = c.Value
+		numericMargin = c.Margin
+	case restmodels.DeviceAttributeNumberLtCondition:
+		condType = "device-id-attribute-number-lt"
+		timezone = "UTC"
+		deviceID = zeroIntToNil(c.ID)
+		attribute = emptyStringToNil(c.Attribute)
+		numericValue = c.Value
+	case restmodels.DeviceAttributeNumberGtCondition:
+		condType = "device-id-attribute-number-gt"
+		timezone = "UTC"
+		deviceID = zeroIntToNil(c.ID)
+		attribute = emptyStringToNil(c.Attribute)
+		numericValue = c.Value
+	case restmodels.DeviceAttributeNumberLteCondition:
+		condType = "device-id-attribute-number-lte"
+		timezone = "UTC"
+		deviceID = zeroIntToNil(c.ID)
+		attribute = emptyStringToNil(c.Attribute)
+		numericValue = c.Value
+	case restmodels.DeviceAttributeNumberGteCondition:
+		condType = "device-id-attribute-number-gte"
+		timezone = "UTC"
+		deviceID = zeroIntToNil(c.ID)
+		attribute = emptyStringToNil(c.Attribute)
+		numericValue = c.Value
+	case restmodels.DeviceAttributeTextEqCondition:
+		condType = "device-id-attribute-text-eq"
+		timezone = "UTC"
+		deviceID = zeroIntToNil(c.ID)
+		attribute = emptyStringToNil(c.Attribute)
+		textValue = emptyStringToNil(c.Value)
+	case restmodels.DeviceAttributeTextSubstringCondition:
+		condType = "device-id-attribute-text-substring"
+		timezone = "UTC"
+		deviceID = zeroIntToNil(c.ID)
+		attribute = emptyStringToNil(c.Attribute)
+		textValue = emptyStringToNil(c.Value)
 	default:
 		return 0, fmt.Errorf("unknown condition type: %T", c)
 	}
 
 	result, err := tx.Exec(`
-		INSERT INTO conditions (rule_id, type, from_time, to_time, timezone, days, device_id, attribute, boolean, and_condition_id, or_condition_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO conditions (rule_id, type, from_time, to_time, timezone, days, device_id, attribute, boolean,
+		                        numeric_value, numeric_margin, text_value,
+		                        and_condition_id, or_condition_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ruleID,
 		condType,
 		fromTime,
@@ -204,6 +364,9 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 		deviceID,
 		attribute,
 		boolean,
+		numericValue,
+		numericMargin,
+		textValue,
 		andID,
 		orID,
 	)

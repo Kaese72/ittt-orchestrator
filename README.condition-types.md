@@ -4,6 +4,14 @@
   - ["time-range"](#time-range)
   - ["time-range-days"](#time-range-days)
   - ["device-id-attribute-boolean-eq"](#device-id-attribute-boolean-eq)
+  - ["device-id-attribute-number-eq"](#device-id-attribute-number-eq)
+  - ["device-id-attribute-number-eq-margin"](#device-id-attribute-number-eq-margin)
+  - ["device-id-attribute-number-lt"](#device-id-attribute-number-lt)
+  - ["device-id-attribute-number-gt"](#device-id-attribute-number-gt)
+  - ["device-id-attribute-number-lte"](#device-id-attribute-number-lte)
+  - ["device-id-attribute-number-gte"](#device-id-attribute-number-gte)
+  - ["device-id-attribute-text-eq"](#device-id-attribute-text-eq)
+  - ["device-id-attribute-text-substring"](#device-id-attribute-text-substring)
   - [\[NOT IMPLEMENTED\] "day-of-week"](#not-implemented-day-of-week)
     - [Incompatability with time based conditions](#incompatability-with-time-based-conditions)
 
@@ -64,6 +72,102 @@ If any of these are not true, the `condition` evaluates to `false`. For example,
 * The named attribute does not have a boolean state (null)
 
 This type never emits any *next occurence* when used in a `condition tree`.
+
+## "device-id-attribute-number-eq"
+
+True when `|actual - value| < 0.01`.
+
+Fields: `id` (integer), `attribute` (string), `value` (number).
+
+```json
+{"type": "device-id-attribute-number-eq", "id": 42, "attribute": "brightness", "value": 50}
+```
+
+This type never emits any *next occurrence*. Evaluates to `false` if the device, attribute, or numeric state is missing.
+
+## "device-id-attribute-number-eq-margin"
+
+True when `|actual - value| <= margin`.
+
+Fields: `id` (integer), `attribute` (string), `value` (number), `margin` (number, must be >= 0).
+
+```json
+{"type": "device-id-attribute-number-eq-margin", "id": 42, "attribute": "brightness", "value": 50, "margin": 5}
+```
+
+This type never emits any *next occurrence*. Evaluates to `false` if the device, attribute, or numeric state is missing.
+
+## "device-id-attribute-number-lt"
+
+True when `actual < value`.
+
+Fields: `id` (integer), `attribute` (string), `value` (number).
+
+```json
+{"type": "device-id-attribute-number-lt", "id": 42, "attribute": "brightness", "value": 50}
+```
+
+This type never emits any *next occurrence*. Evaluates to `false` if the device, attribute, or numeric state is missing.
+
+## "device-id-attribute-number-gt"
+
+True when `actual > value`.
+
+Fields: `id` (integer), `attribute` (string), `value` (number).
+
+```json
+{"type": "device-id-attribute-number-gt", "id": 42, "attribute": "brightness", "value": 50}
+```
+
+This type never emits any *next occurrence*. Evaluates to `false` if the device, attribute, or numeric state is missing.
+
+## "device-id-attribute-number-lte"
+
+True when `actual <= value`.
+
+Fields: `id` (integer), `attribute` (string), `value` (number).
+
+```json
+{"type": "device-id-attribute-number-lte", "id": 42, "attribute": "brightness", "value": 50}
+```
+
+This type never emits any *next occurrence*. Evaluates to `false` if the device, attribute, or numeric state is missing.
+
+## "device-id-attribute-number-gte"
+
+True when `actual >= value`.
+
+Fields: `id` (integer), `attribute` (string), `value` (number).
+
+```json
+{"type": "device-id-attribute-number-gte", "id": 42, "attribute": "brightness", "value": 50}
+```
+
+This type never emits any *next occurrence*. Evaluates to `false` if the device, attribute, or numeric state is missing.
+
+## "device-id-attribute-text-eq"
+
+True when the attribute text exactly matches `value` (case-sensitive).
+
+Fields: `id` (integer), `attribute` (string), `value` (string).
+
+```json
+{"type": "device-id-attribute-text-eq", "id": 42, "attribute": "mode", "value": "cool"}
+```
+
+This type never emits any *next occurrence*. Evaluates to `false` if the device, attribute, or text state is missing.
+
+## "device-id-attribute-text-substring"
+
+True when the attribute text contains `value`.
+
+Fields: `id` (integer), `attribute` (string), `value` (string).
+
+```json
+{"type": "device-id-attribute-text-substring", "id": 42, "attribute": "label", "value": "living room"}
+```
+
+This type never emits any *next occurrence*. Evaluates to `false` if the device, attribute, or text state is missing.
 
 ## [NOT IMPLEMENTED] "day-of-week"
 
