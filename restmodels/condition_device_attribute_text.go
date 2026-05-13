@@ -24,13 +24,15 @@ func fetchTextAttribute(ctx EvalContext, id int, attribute string) (string, Eval
 
 // DeviceAttributeTextEqCondition is true when the attribute text exactly matches value (case-sensitive).
 type DeviceAttributeTextEqCondition struct {
-	Type      string `json:"type"`
-	ID        int    `json:"id"`
-	Attribute string `json:"attribute"`
-	Value     string `json:"value"`
+	Type            string `json:"type"`
+	ID              int    `json:"id"`
+	Attribute       string `json:"attribute"`
+	Value           string `json:"value"`
+	CooldownSeconds *int64 `json:"cooldown-seconds,omitempty"`
 }
 
-func (c DeviceAttributeTextEqCondition) DeviceReferences() []int { return []int{c.ID} }
+func (c DeviceAttributeTextEqCondition) DeviceReferences() []int    { return []int{c.ID} }
+func (c DeviceAttributeTextEqCondition) GetCooldownSeconds() *int64 { return c.CooldownSeconds }
 func (c DeviceAttributeTextEqCondition) Evaluate(ctx EvalContext) EvalResult {
 	actual, fail, ok := fetchTextAttribute(ctx, c.ID, c.Attribute)
 	if !ok {
@@ -44,13 +46,15 @@ func (c DeviceAttributeTextEqCondition) Evaluate(ctx EvalContext) EvalResult {
 
 // DeviceAttributeTextSubstringCondition is true when the attribute text contains value.
 type DeviceAttributeTextSubstringCondition struct {
-	Type      string `json:"type"`
-	ID        int    `json:"id"`
-	Attribute string `json:"attribute"`
-	Value     string `json:"value"`
+	Type            string `json:"type"`
+	ID              int    `json:"id"`
+	Attribute       string `json:"attribute"`
+	Value           string `json:"value"`
+	CooldownSeconds *int64 `json:"cooldown-seconds,omitempty"`
 }
 
-func (c DeviceAttributeTextSubstringCondition) DeviceReferences() []int { return []int{c.ID} }
+func (c DeviceAttributeTextSubstringCondition) DeviceReferences() []int    { return []int{c.ID} }
+func (c DeviceAttributeTextSubstringCondition) GetCooldownSeconds() *int64 { return c.CooldownSeconds }
 func (c DeviceAttributeTextSubstringCondition) Evaluate(ctx EvalContext) EvalResult {
 	actual, fail, ok := fetchTextAttribute(ctx, c.ID, c.Attribute)
 	if !ok {

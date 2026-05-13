@@ -70,8 +70,9 @@ func (s *Scheduler) HandleRuleEvent(event eventmodels.RuleEvent) {
 }
 
 // HandleDeviceUpdate is called for every device attribute update received from
-// the event bus. It finds rules that reference the updated device and evaluates
-// each one immediately.
+// the event bus. It finds rules that reference the updated device. If the matching
+// condition has a cooldown, the rule is scheduled to re-evaluate after the cooldown
+// expires; otherwise it is evaluated immediately.
 func (s *Scheduler) HandleDeviceUpdate(update eventmodels.DeviceAttributeUpdate) {
 	rules, err := s.db.GetRules()
 	if err != nil {
@@ -85,7 +86,21 @@ func (s *Scheduler) HandleDeviceUpdate(update eventmodels.DeviceAttributeUpdate)
 		if !referencesDevice(*rule.ConditionTree, update.DeviceID) {
 			continue
 		}
-		s.evaluate(rule.ID, time.Now())
+		maxCooldown := rule.ConditionTree.MaxCooldownForDevice(update.DeviceID)
+		if maxCooldown > 0 {
+			cooldownUntil := time.Now().Add(time.Duration(maxCooldown) * time.Second)
+			if rule.CooldownUntil != nil && rule.CooldownUntil.After(cooldownUntil) {
+				cooldownUntil = *rule.CooldownUntil
+			}
+			if err := s.db.UpdateCooldownUntil(rule.ID, &cooldownUntil); err != nil {
+				log.Error(fmt.Sprintf("scheduler: failed to set cooldown for rule %d: %s", rule.ID, err.Error()), map[string]interface{}{})
+				continue
+			}
+			log.Info(fmt.Sprintf("scheduler: rule %d cooldown set, will re-evaluate at %s", rule.ID, cooldownUntil.UTC().Format(time.RFC3339)), map[string]interface{}{})
+			s.scheduleAt(rule.ID, cooldownUntil)
+		} else {
+			s.evaluate(rule.ID, time.Now())
+		}
 	}
 }
 

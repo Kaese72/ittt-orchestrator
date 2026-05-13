@@ -8,13 +8,15 @@ import (
 
 // DeviceAttributeBooleanEqCondition checks that a device attribute equals a boolean value.
 type DeviceAttributeBooleanEqCondition struct {
-	Type      string `json:"type"`
-	ID        int    `json:"id"`
-	Attribute string `json:"attribute"`
-	Boolean   bool   `json:"boolean"`
+	Type            string `json:"type"`
+	ID              int    `json:"id"`
+	Attribute       string `json:"attribute"`
+	Boolean         bool   `json:"boolean"`
+	CooldownSeconds *int64 `json:"cooldown-seconds,omitempty"`
 }
 
-func (c DeviceAttributeBooleanEqCondition) DeviceReferences() []int { return []int{c.ID} }
+func (c DeviceAttributeBooleanEqCondition) DeviceReferences() []int     { return []int{c.ID} }
+func (c DeviceAttributeBooleanEqCondition) GetCooldownSeconds() *int64  { return c.CooldownSeconds }
 
 func (c DeviceAttributeBooleanEqCondition) Evaluate(ctx EvalContext) EvalResult {
 	attrValue, err := ctx.GetDeviceAttribute(c.ID, c.Attribute)

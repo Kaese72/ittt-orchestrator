@@ -36,6 +36,20 @@ type Condition interface {
 	DeviceReferences() []int
 }
 
+// hasCooldown is implemented by device-referencing conditions that support a cooldown.
+type hasCooldown interface {
+	GetCooldownSeconds() *int64
+}
+
+func conditionCooldownSeconds(c Condition) int64 {
+	if hc, ok := c.(hasCooldown); ok {
+		if v := hc.GetCooldownSeconds(); v != nil {
+			return *v
+		}
+	}
+	return 0
+}
+
 // ConditionTree is a node in the logical expression tree.
 // Each node holds a condition check and optional AND/OR child nodes.
 type ConditionTree struct {
@@ -106,6 +120,32 @@ func (t *ConditionTree) DeviceReferences() []int {
 		return nil
 	}
 	return refs
+}
+
+// MaxCooldownForDevice returns the longest cooldown (in seconds) among all conditions in the tree
+// that reference deviceID. Returns 0 if no matching condition has a cooldown set.
+func (t *ConditionTree) MaxCooldownForDevice(deviceID int) int64 {
+	var max int64
+	c := t.Condition.Value()
+	for _, ref := range c.DeviceReferences() {
+		if ref == deviceID {
+			if s := conditionCooldownSeconds(c); s > max {
+				max = s
+			}
+			break
+		}
+	}
+	if t.And != nil {
+		if s := t.And.MaxCooldownForDevice(deviceID); s > max {
+			max = s
+		}
+	}
+	if t.Or != nil {
+		if s := t.Or.MaxCooldownForDevice(deviceID); s > max {
+			max = s
+		}
+	}
+	return max
 }
 
 // ConditionUnion is a JSON discriminated union of Condition types, dispatching on the "type" field.

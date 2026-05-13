@@ -28,27 +28,28 @@ func NewMariadbPersistence(conf config.DatabaseConfig) (*mariadbPersistence, err
 
 // conditionRow holds a single row from the conditions table.
 type conditionRow struct {
-	ID             int
-	Type           string
-	FromTime       sql.NullString
-	ToTime         sql.NullString
-	Timezone       string
-	Days           sql.NullInt64   // bitmask of active weekdays (bit N = time.Weekday(N)), used by time-range-days
-	DeviceID       sql.NullInt64
-	Attribute      sql.NullString
-	Boolean        sql.NullInt64   // NULL = not set, 0 = false, 1 = true
-	NumericValue   sql.NullFloat64 // for device-id-attribute-number-*
-	NumericMargin  sql.NullFloat64 // for device-id-attribute-number-eq-margin
-	TextValue      sql.NullString  // for device-id-attribute-text-*
-	AndConditionID sql.NullInt64
-	OrConditionID  sql.NullInt64
+	ID              int
+	Type            string
+	FromTime        sql.NullString
+	ToTime          sql.NullString
+	Timezone        string
+	Days            sql.NullInt64   // bitmask of active weekdays (bit N = time.Weekday(N)), used by time-range-days
+	DeviceID        sql.NullInt64
+	Attribute       sql.NullString
+	Boolean         sql.NullInt64   // NULL = not set, 0 = false, 1 = true
+	NumericValue    sql.NullFloat64 // for device-id-attribute-number-*
+	NumericMargin   sql.NullFloat64 // for device-id-attribute-number-eq-margin
+	TextValue       sql.NullString  // for device-id-attribute-text-*
+	CooldownSeconds sql.NullInt64
+	AndConditionID  sql.NullInt64
+	OrConditionID   sql.NullInt64
 }
 
 // loadConditions fetches all condition rows for a rule and returns them keyed by ID.
 func (p *mariadbPersistence) loadConditions(ruleID int) (map[int]conditionRow, error) {
 	rows, err := p.db.Query(`
 		SELECT id, type, from_time, to_time, timezone, days, device_id, attribute, boolean,
-		       numeric_value, numeric_margin, text_value,
+		       numeric_value, numeric_margin, text_value, cooldown_seconds,
 		       and_condition_id, or_condition_id
 		FROM conditions WHERE rule_id = ?
 	`, ruleID)
@@ -63,7 +64,7 @@ func (p *mariadbPersistence) loadConditions(ruleID int) (map[int]conditionRow, e
 		if err := rows.Scan(
 			&row.ID, &row.Type, &row.FromTime, &row.ToTime, &row.Timezone, &row.Days, &row.DeviceID,
 			&row.Attribute, &row.Boolean,
-			&row.NumericValue, &row.NumericMargin, &row.TextValue,
+			&row.NumericValue, &row.NumericMargin, &row.TextValue, &row.CooldownSeconds,
 			&row.AndConditionID, &row.OrConditionID,
 		); err != nil {
 			return nil, err
@@ -111,9 +112,7 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 		}
 		cond = c
 	case "device-id-attribute-boolean-eq":
-		c := restmodels.DeviceAttributeBooleanEqCondition{
-			Type: row.Type,
-		}
+		c := restmodels.DeviceAttributeBooleanEqCondition{Type: row.Type}
 		if row.DeviceID.Valid {
 			c.ID = int(row.DeviceID.Int64)
 		}
@@ -122,6 +121,10 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 		}
 		if row.Boolean.Valid {
 			c.Boolean = row.Boolean.Int64 != 0
+		}
+		if row.CooldownSeconds.Valid {
+			v := row.CooldownSeconds.Int64
+			c.CooldownSeconds = &v
 		}
 		cond = c
 	case "device-id-attribute-number-eq":
@@ -134,6 +137,10 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 		}
 		if row.NumericValue.Valid {
 			c.Value = row.NumericValue.Float64
+		}
+		if row.CooldownSeconds.Valid {
+			v := row.CooldownSeconds.Int64
+			c.CooldownSeconds = &v
 		}
 		cond = c
 	case "device-id-attribute-number-eq-margin":
@@ -150,6 +157,10 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 		if row.NumericMargin.Valid {
 			c.Margin = row.NumericMargin.Float64
 		}
+		if row.CooldownSeconds.Valid {
+			v := row.CooldownSeconds.Int64
+			c.CooldownSeconds = &v
+		}
 		cond = c
 	case "device-id-attribute-number-lt":
 		c := restmodels.DeviceAttributeNumberLtCondition{Type: row.Type}
@@ -161,6 +172,10 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 		}
 		if row.NumericValue.Valid {
 			c.Value = row.NumericValue.Float64
+		}
+		if row.CooldownSeconds.Valid {
+			v := row.CooldownSeconds.Int64
+			c.CooldownSeconds = &v
 		}
 		cond = c
 	case "device-id-attribute-number-gt":
@@ -174,6 +189,10 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 		if row.NumericValue.Valid {
 			c.Value = row.NumericValue.Float64
 		}
+		if row.CooldownSeconds.Valid {
+			v := row.CooldownSeconds.Int64
+			c.CooldownSeconds = &v
+		}
 		cond = c
 	case "device-id-attribute-number-lte":
 		c := restmodels.DeviceAttributeNumberLteCondition{Type: row.Type}
@@ -185,6 +204,10 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 		}
 		if row.NumericValue.Valid {
 			c.Value = row.NumericValue.Float64
+		}
+		if row.CooldownSeconds.Valid {
+			v := row.CooldownSeconds.Int64
+			c.CooldownSeconds = &v
 		}
 		cond = c
 	case "device-id-attribute-number-gte":
@@ -198,6 +221,10 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 		if row.NumericValue.Valid {
 			c.Value = row.NumericValue.Float64
 		}
+		if row.CooldownSeconds.Valid {
+			v := row.CooldownSeconds.Int64
+			c.CooldownSeconds = &v
+		}
 		cond = c
 	case "device-id-attribute-text-eq":
 		c := restmodels.DeviceAttributeTextEqCondition{Type: row.Type}
@@ -210,6 +237,10 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 		if row.TextValue.Valid {
 			c.Value = row.TextValue.String
 		}
+		if row.CooldownSeconds.Valid {
+			v := row.CooldownSeconds.Int64
+			c.CooldownSeconds = &v
+		}
 		cond = c
 	case "device-id-attribute-text-substring":
 		c := restmodels.DeviceAttributeTextSubstringCondition{Type: row.Type}
@@ -221,6 +252,10 @@ func buildConditionTree(condMap map[int]conditionRow, rootID int) *restmodels.Co
 		}
 		if row.TextValue.Valid {
 			c.Value = row.TextValue.String
+		}
+		if row.CooldownSeconds.Valid {
+			v := row.CooldownSeconds.Int64
+			c.CooldownSeconds = &v
 		}
 		cond = c
 	default:
@@ -265,17 +300,18 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 	}
 
 	var (
-		condType      string
-		fromTime      interface{}
-		toTime        interface{}
-		timezone      string
-		days          interface{}
-		deviceID      interface{}
-		attribute     interface{}
-		boolean       interface{}
-		numericValue  interface{}
-		numericMargin interface{}
-		textValue     interface{}
+		condType        string
+		fromTime        interface{}
+		toTime          interface{}
+		timezone        string
+		days            interface{}
+		deviceID        interface{}
+		attribute       interface{}
+		boolean         interface{}
+		numericValue    interface{}
+		numericMargin   interface{}
+		textValue       interface{}
+		cooldownSeconds interface{}
 	)
 	switch c := tree.Condition.Value().(type) {
 	case restmodels.TimeRangeCondition:
@@ -297,12 +333,14 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 		deviceID = zeroIntToNil(c.ID)
 		attribute = emptyStringToNil(c.Attribute)
 		boolean = boolToInt(c.Boolean)
+		cooldownSeconds = c.CooldownSeconds
 	case restmodels.DeviceAttributeNumberEqCondition:
 		condType = "device-id-attribute-number-eq"
 		timezone = "UTC"
 		deviceID = zeroIntToNil(c.ID)
 		attribute = emptyStringToNil(c.Attribute)
 		numericValue = c.Value
+		cooldownSeconds = c.CooldownSeconds
 	case restmodels.DeviceAttributeNumberEqMarginCondition:
 		condType = "device-id-attribute-number-eq-margin"
 		timezone = "UTC"
@@ -310,51 +348,58 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 		attribute = emptyStringToNil(c.Attribute)
 		numericValue = c.Value
 		numericMargin = c.Margin
+		cooldownSeconds = c.CooldownSeconds
 	case restmodels.DeviceAttributeNumberLtCondition:
 		condType = "device-id-attribute-number-lt"
 		timezone = "UTC"
 		deviceID = zeroIntToNil(c.ID)
 		attribute = emptyStringToNil(c.Attribute)
 		numericValue = c.Value
+		cooldownSeconds = c.CooldownSeconds
 	case restmodels.DeviceAttributeNumberGtCondition:
 		condType = "device-id-attribute-number-gt"
 		timezone = "UTC"
 		deviceID = zeroIntToNil(c.ID)
 		attribute = emptyStringToNil(c.Attribute)
 		numericValue = c.Value
+		cooldownSeconds = c.CooldownSeconds
 	case restmodels.DeviceAttributeNumberLteCondition:
 		condType = "device-id-attribute-number-lte"
 		timezone = "UTC"
 		deviceID = zeroIntToNil(c.ID)
 		attribute = emptyStringToNil(c.Attribute)
 		numericValue = c.Value
+		cooldownSeconds = c.CooldownSeconds
 	case restmodels.DeviceAttributeNumberGteCondition:
 		condType = "device-id-attribute-number-gte"
 		timezone = "UTC"
 		deviceID = zeroIntToNil(c.ID)
 		attribute = emptyStringToNil(c.Attribute)
 		numericValue = c.Value
+		cooldownSeconds = c.CooldownSeconds
 	case restmodels.DeviceAttributeTextEqCondition:
 		condType = "device-id-attribute-text-eq"
 		timezone = "UTC"
 		deviceID = zeroIntToNil(c.ID)
 		attribute = emptyStringToNil(c.Attribute)
 		textValue = emptyStringToNil(c.Value)
+		cooldownSeconds = c.CooldownSeconds
 	case restmodels.DeviceAttributeTextSubstringCondition:
 		condType = "device-id-attribute-text-substring"
 		timezone = "UTC"
 		deviceID = zeroIntToNil(c.ID)
 		attribute = emptyStringToNil(c.Attribute)
 		textValue = emptyStringToNil(c.Value)
+		cooldownSeconds = c.CooldownSeconds
 	default:
 		return 0, fmt.Errorf("unknown condition type: %T", c)
 	}
 
 	result, err := tx.Exec(`
 		INSERT INTO conditions (rule_id, type, from_time, to_time, timezone, days, device_id, attribute, boolean,
-		                        numeric_value, numeric_margin, text_value,
+		                        numeric_value, numeric_margin, text_value, cooldown_seconds,
 		                        and_condition_id, or_condition_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ruleID,
 		condType,
 		fromTime,
@@ -367,6 +412,7 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 		numericValue,
 		numericMargin,
 		textValue,
+		cooldownSeconds,
 		andID,
 		orID,
 	)
@@ -379,15 +425,14 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 // loadRule fetches a single rule, its condition tree, and its actions.
 func (p *mariadbPersistence) loadRule(id int) (restmodels.Rule, error) {
 	var (
-		ruleName               string
-		ruleEnabledInt         int
-		rootConditionID        sql.NullInt64
-		nextOccurence          sql.NullTime
-		backoffDurationSeconds sql.NullInt64
-		backoffUntil           sql.NullTime
+		ruleName        string
+		ruleEnabledInt  int
+		rootConditionID sql.NullInt64
+		nextOccurence   sql.NullTime
+		cooldownUntil   sql.NullTime
 	)
-	err := p.db.QueryRow(`SELECT name, enabled, root_condition_id, next_occurence, backoff_duration_seconds, backoff_until FROM rules WHERE id = ?`, id).
-		Scan(&ruleName, &ruleEnabledInt, &rootConditionID, &nextOccurence, &backoffDurationSeconds, &backoffUntil)
+	err := p.db.QueryRow(`SELECT name, enabled, root_condition_id, next_occurence, cooldown_until FROM rules WHERE id = ?`, id).
+		Scan(&ruleName, &ruleEnabledInt, &rootConditionID, &nextOccurence, &cooldownUntil)
 	if err == sql.ErrNoRows {
 		return restmodels.Rule{}, huma.Error404NotFound(fmt.Sprintf("rule %d not found", id))
 	}
@@ -404,13 +449,9 @@ func (p *mariadbPersistence) loadRule(id int) (restmodels.Rule, error) {
 		t := nextOccurence.Time
 		rule.NextOccurrence = &t
 	}
-	if backoffDurationSeconds.Valid {
-		v := backoffDurationSeconds.Int64
-		rule.BackoffDurationSeconds = &v
-	}
-	if backoffUntil.Valid {
-		t := backoffUntil.Time
-		rule.BackoffUntil = &t
+	if cooldownUntil.Valid {
+		t := cooldownUntil.Time
+		rule.CooldownUntil = &t
 	}
 
 	if rootConditionID.Valid {
@@ -475,12 +516,8 @@ func (p *mariadbPersistence) CreateRule(rule restmodels.Rule) (restmodels.Rule, 
 	if rule.Enabled {
 		enabledInt = 1
 	}
-	var backoffDurationSeconds interface{}
-	if rule.BackoffDurationSeconds != nil {
-		backoffDurationSeconds = *rule.BackoffDurationSeconds
-	}
-	result, err := tx.Exec(`INSERT INTO rules (name, enabled, root_condition_id, backoff_duration_seconds) VALUES (?, ?, NULL, ?)`,
-		rule.Name, enabledInt, backoffDurationSeconds)
+	result, err := tx.Exec(`INSERT INTO rules (name, enabled, root_condition_id) VALUES (?, ?, NULL)`,
+		rule.Name, enabledInt)
 	if err != nil {
 		return restmodels.Rule{}, err
 	}
@@ -526,12 +563,7 @@ func (p *mariadbPersistence) UpdateRule(id int, rule restmodels.Rule) (restmodel
 		return restmodels.Rule{}, huma.Error404NotFound(fmt.Sprintf("rule %d not found", id))
 	}
 
-	var backoffDurationSeconds interface{}
-	if rule.BackoffDurationSeconds != nil {
-		backoffDurationSeconds = *rule.BackoffDurationSeconds
-	}
-	// backoff_until is cleared on update so the backoff restarts on next evaluation.
-	if _, err := tx.Exec(`UPDATE rules SET name = ?, enabled = ?, backoff_duration_seconds = ?, backoff_until = NULL WHERE id = ?`, rule.Name, enabledInt, backoffDurationSeconds, id); err != nil {
+	if _, err := tx.Exec(`UPDATE rules SET name = ?, enabled = ? WHERE id = ?`, rule.Name, enabledInt, id); err != nil {
 		return restmodels.Rule{}, err
 	}
 
@@ -699,12 +731,12 @@ func (p *mariadbPersistence) UpdateNextOccurrence(ruleID int, t *time.Time) erro
 	return err
 }
 
-func (p *mariadbPersistence) UpdateBackoffUntil(ruleID int, t *time.Time) error {
+func (p *mariadbPersistence) UpdateCooldownUntil(ruleID int, t *time.Time) error {
 	var val interface{}
 	if t != nil {
 		val = t.UTC()
 	}
-	_, err := p.db.Exec(`UPDATE rules SET backoff_until = ? WHERE id = ?`, val, ruleID)
+	_, err := p.db.Exec(`UPDATE rules SET cooldown_until = ? WHERE id = ?`, val, ruleID)
 	return err
 }
 

@@ -63,9 +63,9 @@ func New(db persistence.PersistenceDB, dsClient DeviceStoreClient) *Orchestrator
 	return &Orchestrator{db: db, dsClient: dsClient}
 }
 
-// EvaluateAndTrigger evaluates the condition tree of the given rule at evalTime, applies
-// any configured backoff, triggers actions if appropriate, and returns the EvalResult so
-// the caller can act on NextOccurrence.
+// EvaluateAndTrigger evaluates the condition tree of the given rule at evalTime,
+// triggers actions if conditions are true, and returns the EvalResult so the caller
+// can act on NextOccurrence.
 func (o *Orchestrator) EvaluateAndTrigger(ruleID int, evalTime time.Time) (restmodels.EvalResult, error) {
 	rule, err := o.db.GetRule(ruleID)
 	if err != nil {
@@ -77,44 +77,21 @@ func (o *Orchestrator) EvaluateAndTrigger(ruleID int, evalTime time.Time) (restm
 	if rule.ConditionTree == nil {
 		return restmodels.EvalResult{}, fmt.Errorf("rule %d has no condition tree", ruleID)
 	}
+
+	// Clear an expired cooldown so the UI does not show stale data.
+	if rule.CooldownUntil != nil && evalTime.After(*rule.CooldownUntil) {
+		if err := o.db.UpdateCooldownUntil(ruleID, nil); err != nil {
+			return restmodels.EvalResult{}, err
+		}
+	}
+
 	ctx := &evalContext{dsClient: o.dsClient, deviceCache: make(map[int][]devicestore.Attribute), now: evalTime}
 	result := rule.ConditionTree.Evaluate(ctx)
 
 	if result.Result {
-		if rule.BackoffDurationSeconds != nil && *rule.BackoffDurationSeconds > 0 {
-			backoffDuration := time.Duration(*rule.BackoffDurationSeconds) * time.Second
-			now := time.Now()
-			switch {
-			case rule.BackoffUntil == nil:
-				backoffUntil := now.Add(backoffDuration)
-				if err := o.db.UpdateBackoffUntil(ruleID, &backoffUntil); err != nil {
-					return result, err
-				}
-				result.NextOccurrence = &backoffUntil
-				log.Info(fmt.Sprintf("orchestrator: rule %d backoff started, will re-evaluate at %s", ruleID, backoffUntil.UTC().Format(time.RFC3339)), map[string]interface{}{})
-			case now.Before(*rule.BackoffUntil):
-				result.NextOccurrence = rule.BackoffUntil
-			default:
-				for _, action := range rule.Actions {
-					if err := triggerAction(o.dsClient, action); err != nil {
-						log.Error(fmt.Sprintf("failed to trigger action %d for rule %d: %s", action.ActionID, ruleID, err.Error()), map[string]interface{}{})
-					}
-				}
-				if err := o.db.UpdateBackoffUntil(ruleID, nil); err != nil {
-					return result, err
-				}
-			}
-		} else {
-			for _, action := range rule.Actions {
-				if err := triggerAction(o.dsClient, action); err != nil {
-					log.Error(fmt.Sprintf("failed to trigger action %d for rule %d: %s", action.ActionID, ruleID, err.Error()), map[string]interface{}{})
-				}
-			}
-		}
-	} else {
-		if rule.BackoffUntil != nil {
-			if err := o.db.UpdateBackoffUntil(ruleID, nil); err != nil {
-				return result, err
+		for _, action := range rule.Actions {
+			if err := triggerAction(o.dsClient, action); err != nil {
+				log.Error(fmt.Sprintf("failed to trigger action %d for rule %d: %s", action.ActionID, ruleID, err.Error()), map[string]interface{}{})
 			}
 		}
 	}

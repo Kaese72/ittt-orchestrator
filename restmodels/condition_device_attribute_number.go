@@ -27,13 +27,15 @@ func fetchNumericAttribute(ctx EvalContext, id int, attribute string) (float64, 
 
 // DeviceAttributeNumberEqCondition is true when |actual - value| < 0.01.
 type DeviceAttributeNumberEqCondition struct {
-	Type      string  `json:"type"`
-	ID        int     `json:"id"`
-	Attribute string  `json:"attribute"`
-	Value     float64 `json:"value"`
+	Type            string  `json:"type"`
+	ID              int     `json:"id"`
+	Attribute       string  `json:"attribute"`
+	Value           float64 `json:"value"`
+	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty"`
 }
 
-func (c DeviceAttributeNumberEqCondition) DeviceReferences() []int { return []int{c.ID} }
+func (c DeviceAttributeNumberEqCondition) DeviceReferences() []int    { return []int{c.ID} }
+func (c DeviceAttributeNumberEqCondition) GetCooldownSeconds() *int64 { return c.CooldownSeconds }
 func (c DeviceAttributeNumberEqCondition) Evaluate(ctx EvalContext) EvalResult {
 	actual, fail, ok := fetchNumericAttribute(ctx, c.ID, c.Attribute)
 	if !ok {
@@ -47,14 +49,16 @@ func (c DeviceAttributeNumberEqCondition) Evaluate(ctx EvalContext) EvalResult {
 
 // DeviceAttributeNumberEqMarginCondition is true when |actual - value| <= margin.
 type DeviceAttributeNumberEqMarginCondition struct {
-	Type      string  `json:"type"`
-	ID        int     `json:"id"`
-	Attribute string  `json:"attribute"`
-	Value     float64 `json:"value"`
-	Margin    float64 `json:"margin"`
+	Type            string  `json:"type"`
+	ID              int     `json:"id"`
+	Attribute       string  `json:"attribute"`
+	Value           float64 `json:"value"`
+	Margin          float64 `json:"margin"`
+	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty"`
 }
 
-func (c DeviceAttributeNumberEqMarginCondition) DeviceReferences() []int { return []int{c.ID} }
+func (c DeviceAttributeNumberEqMarginCondition) DeviceReferences() []int    { return []int{c.ID} }
+func (c DeviceAttributeNumberEqMarginCondition) GetCooldownSeconds() *int64 { return c.CooldownSeconds }
 func (c DeviceAttributeNumberEqMarginCondition) Evaluate(ctx EvalContext) EvalResult {
 	actual, fail, ok := fetchNumericAttribute(ctx, c.ID, c.Attribute)
 	if !ok {
@@ -75,13 +79,15 @@ func (c DeviceAttributeNumberEqMarginCondition) Resolve(_ huma.Context, _ *huma.
 
 // DeviceAttributeNumberLtCondition is true when actual < value.
 type DeviceAttributeNumberLtCondition struct {
-	Type      string  `json:"type"`
-	ID        int     `json:"id"`
-	Attribute string  `json:"attribute"`
-	Value     float64 `json:"value"`
+	Type            string  `json:"type"`
+	ID              int     `json:"id"`
+	Attribute       string  `json:"attribute"`
+	Value           float64 `json:"value"`
+	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty"`
 }
 
-func (c DeviceAttributeNumberLtCondition) DeviceReferences() []int { return []int{c.ID} }
+func (c DeviceAttributeNumberLtCondition) DeviceReferences() []int    { return []int{c.ID} }
+func (c DeviceAttributeNumberLtCondition) GetCooldownSeconds() *int64 { return c.CooldownSeconds }
 func (c DeviceAttributeNumberLtCondition) Evaluate(ctx EvalContext) EvalResult {
 	actual, fail, ok := fetchNumericAttribute(ctx, c.ID, c.Attribute)
 	if !ok {
@@ -95,13 +101,15 @@ func (c DeviceAttributeNumberLtCondition) Evaluate(ctx EvalContext) EvalResult {
 
 // DeviceAttributeNumberGtCondition is true when actual > value.
 type DeviceAttributeNumberGtCondition struct {
-	Type      string  `json:"type"`
-	ID        int     `json:"id"`
-	Attribute string  `json:"attribute"`
-	Value     float64 `json:"value"`
+	Type            string  `json:"type"`
+	ID              int     `json:"id"`
+	Attribute       string  `json:"attribute"`
+	Value           float64 `json:"value"`
+	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty"`
 }
 
-func (c DeviceAttributeNumberGtCondition) DeviceReferences() []int { return []int{c.ID} }
+func (c DeviceAttributeNumberGtCondition) DeviceReferences() []int    { return []int{c.ID} }
+func (c DeviceAttributeNumberGtCondition) GetCooldownSeconds() *int64 { return c.CooldownSeconds }
 func (c DeviceAttributeNumberGtCondition) Evaluate(ctx EvalContext) EvalResult {
 	actual, fail, ok := fetchNumericAttribute(ctx, c.ID, c.Attribute)
 	if !ok {
@@ -115,13 +123,15 @@ func (c DeviceAttributeNumberGtCondition) Evaluate(ctx EvalContext) EvalResult {
 
 // DeviceAttributeNumberLteCondition is true when actual <= value.
 type DeviceAttributeNumberLteCondition struct {
-	Type      string  `json:"type"`
-	ID        int     `json:"id"`
-	Attribute string  `json:"attribute"`
-	Value     float64 `json:"value"`
+	Type            string  `json:"type"`
+	ID              int     `json:"id"`
+	Attribute       string  `json:"attribute"`
+	Value           float64 `json:"value"`
+	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty"`
 }
 
-func (c DeviceAttributeNumberLteCondition) DeviceReferences() []int { return []int{c.ID} }
+func (c DeviceAttributeNumberLteCondition) DeviceReferences() []int    { return []int{c.ID} }
+func (c DeviceAttributeNumberLteCondition) GetCooldownSeconds() *int64 { return c.CooldownSeconds }
 func (c DeviceAttributeNumberLteCondition) Evaluate(ctx EvalContext) EvalResult {
 	actual, fail, ok := fetchNumericAttribute(ctx, c.ID, c.Attribute)
 	if !ok {
@@ -135,13 +145,15 @@ func (c DeviceAttributeNumberLteCondition) Evaluate(ctx EvalContext) EvalResult 
 
 // DeviceAttributeNumberGteCondition is true when actual >= value.
 type DeviceAttributeNumberGteCondition struct {
-	Type      string  `json:"type"`
-	ID        int     `json:"id"`
-	Attribute string  `json:"attribute"`
-	Value     float64 `json:"value"`
+	Type            string  `json:"type"`
+	ID              int     `json:"id"`
+	Attribute       string  `json:"attribute"`
+	Value           float64 `json:"value"`
+	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty"`
 }
 
-func (c DeviceAttributeNumberGteCondition) DeviceReferences() []int { return []int{c.ID} }
+func (c DeviceAttributeNumberGteCondition) DeviceReferences() []int    { return []int{c.ID} }
+func (c DeviceAttributeNumberGteCondition) GetCooldownSeconds() *int64 { return c.CooldownSeconds }
 func (c DeviceAttributeNumberGteCondition) Evaluate(ctx EvalContext) EvalResult {
 	actual, fail, ok := fetchNumericAttribute(ctx, c.ID, c.Attribute)
 	if !ok {
