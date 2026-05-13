@@ -98,6 +98,21 @@ the value from the database and refresh the timer.
 When a `rule` is evaluated, either via schedule or from an event, 
 the *next occurence* should be updated as well.
 
+## Backoff
+
+A `rule` can optionally be configured with a `backoff-duration-seconds` value. When set, it prevents
+actions from firing immediately when conditions first become true. Instead the rule schedules itself
+to re-evaluate after that many seconds. Actions only fire once the backoff window has elapsed **and**
+conditions are still true at re-evaluation time.
+
+If conditions become false while a backoff is in progress the countdown is cancelled, so actions
+will never fire from a backoff that has already become stale.
+
+The current backoff deadline is exposed read-only as `backoff-until` on the rule and reflects the
+time at which the next re-evaluation is scheduled.
+
+Updating a rule clears any in-progress backoff so the countdown restarts on the next evaluation.
+
 ## Actions
 
 Each `rule` when triggered will result in a set of `actions` triggering.

@@ -8,7 +8,6 @@ import (
 	log "github.com/Kaese72/huemie-lib/logging"
 	"github.com/Kaese72/ittt-orchestrator/eventmodels"
 	"github.com/Kaese72/ittt-orchestrator/internal/events"
-	"github.com/Kaese72/ittt-orchestrator/internal/orchestrator"
 	"github.com/Kaese72/ittt-orchestrator/internal/persistence"
 	"github.com/Kaese72/ittt-orchestrator/internal/timezones"
 	"github.com/Kaese72/ittt-orchestrator/restmodels"
@@ -20,14 +19,20 @@ func internalError(err error) error {
 	return huma.Error500InternalServerError(err.Error())
 }
 
+// RuleEvaluator is the read-only rule evaluation capability the webapp exposes
+// via the /evaluate endpoint.
+type RuleEvaluator interface {
+	EvaluateConditionTree(ruleID int) (restmodels.EvalResult, error)
+}
+
 type WebApp struct {
 	db        persistence.PersistenceDB
-	orch      *orchestrator.Orchestrator
+	evaluator RuleEvaluator
 	publisher *events.RuleEventPublisher
 }
 
-func NewWebApp(db persistence.PersistenceDB, orch *orchestrator.Orchestrator, publisher *events.RuleEventPublisher) WebApp {
-	return WebApp{db: db, orch: orch, publisher: publisher}
+func NewWebApp(db persistence.PersistenceDB, evaluator RuleEvaluator, publisher *events.RuleEventPublisher) WebApp {
+	return WebApp{db: db, evaluator: evaluator, publisher: publisher}
 }
 
 // publishRuleEvent publishes a rule event and logs but does not fail on error.
@@ -67,11 +72,6 @@ func (w WebApp) CreateRule(ctx context.Context, input *struct {
 	if err != nil {
 		return nil, internalError(err)
 	}
-	// Schedule for immediate evaluation so the rule takes effect right away.
-	now := time.Now()
-	if err := w.db.UpdateNextOccurrence(created.ID, &now); err != nil {
-		return nil, internalError(err)
-	}
 	w.publishRuleEvent(created.ID, "upsert")
 	return &struct{ Body restmodels.Rule }{Body: created}, nil
 }
@@ -83,11 +83,6 @@ func (w WebApp) UpdateRule(ctx context.Context, input *struct {
 }) (*struct{ Body restmodels.Rule }, error) {
 	updated, err := w.db.UpdateRule(input.RuleID, input.Body)
 	if err != nil {
-		return nil, internalError(err)
-	}
-	// Schedule for immediate evaluation so the updated rule takes effect right away.
-	now := time.Now()
-	if err := w.db.UpdateNextOccurrence(updated.ID, &now); err != nil {
 		return nil, internalError(err)
 	}
 	w.publishRuleEvent(updated.ID, "upsert")
@@ -175,7 +170,7 @@ type EvaluateRuleOutput struct {
 func (w WebApp) EvaluateRule(ctx context.Context, input *struct {
 	RuleID int `path:"ruleID"`
 }) (*struct{ Body EvaluateRuleOutput }, error) {
-	evalResult, err := w.orch.EvaluateConditionTree(input.RuleID)
+	evalResult, err := w.evaluator.EvaluateConditionTree(input.RuleID)
 	if err != nil {
 		return nil, internalError(err)
 	}

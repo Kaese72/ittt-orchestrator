@@ -379,13 +379,15 @@ func insertConditionTree(tx *sql.Tx, ruleID int, tree *restmodels.ConditionTree)
 // loadRule fetches a single rule, its condition tree, and its actions.
 func (p *mariadbPersistence) loadRule(id int) (restmodels.Rule, error) {
 	var (
-		ruleName        string
-		ruleEnabledInt  int
-		rootConditionID sql.NullInt64
-		nextOccurence   sql.NullTime
+		ruleName               string
+		ruleEnabledInt         int
+		rootConditionID        sql.NullInt64
+		nextOccurence          sql.NullTime
+		backoffDurationSeconds sql.NullInt64
+		backoffUntil           sql.NullTime
 	)
-	err := p.db.QueryRow(`SELECT name, enabled, root_condition_id, next_occurence FROM rules WHERE id = ?`, id).
-		Scan(&ruleName, &ruleEnabledInt, &rootConditionID, &nextOccurence)
+	err := p.db.QueryRow(`SELECT name, enabled, root_condition_id, next_occurence, backoff_duration_seconds, backoff_until FROM rules WHERE id = ?`, id).
+		Scan(&ruleName, &ruleEnabledInt, &rootConditionID, &nextOccurence, &backoffDurationSeconds, &backoffUntil)
 	if err == sql.ErrNoRows {
 		return restmodels.Rule{}, huma.Error404NotFound(fmt.Sprintf("rule %d not found", id))
 	}
@@ -401,6 +403,14 @@ func (p *mariadbPersistence) loadRule(id int) (restmodels.Rule, error) {
 	if nextOccurence.Valid {
 		t := nextOccurence.Time
 		rule.NextOccurrence = &t
+	}
+	if backoffDurationSeconds.Valid {
+		v := backoffDurationSeconds.Int64
+		rule.BackoffDurationSeconds = &v
+	}
+	if backoffUntil.Valid {
+		t := backoffUntil.Time
+		rule.BackoffUntil = &t
 	}
 
 	if rootConditionID.Valid {
@@ -465,8 +475,12 @@ func (p *mariadbPersistence) CreateRule(rule restmodels.Rule) (restmodels.Rule, 
 	if rule.Enabled {
 		enabledInt = 1
 	}
-	result, err := tx.Exec(`INSERT INTO rules (name, enabled, root_condition_id) VALUES (?, ?, NULL)`,
-		rule.Name, enabledInt)
+	var backoffDurationSeconds interface{}
+	if rule.BackoffDurationSeconds != nil {
+		backoffDurationSeconds = *rule.BackoffDurationSeconds
+	}
+	result, err := tx.Exec(`INSERT INTO rules (name, enabled, root_condition_id, backoff_duration_seconds) VALUES (?, ?, NULL, ?)`,
+		rule.Name, enabledInt, backoffDurationSeconds)
 	if err != nil {
 		return restmodels.Rule{}, err
 	}
@@ -512,7 +526,12 @@ func (p *mariadbPersistence) UpdateRule(id int, rule restmodels.Rule) (restmodel
 		return restmodels.Rule{}, huma.Error404NotFound(fmt.Sprintf("rule %d not found", id))
 	}
 
-	if _, err := tx.Exec(`UPDATE rules SET name = ?, enabled = ? WHERE id = ?`, rule.Name, enabledInt, id); err != nil {
+	var backoffDurationSeconds interface{}
+	if rule.BackoffDurationSeconds != nil {
+		backoffDurationSeconds = *rule.BackoffDurationSeconds
+	}
+	// backoff_until is cleared on update so the backoff restarts on next evaluation.
+	if _, err := tx.Exec(`UPDATE rules SET name = ?, enabled = ?, backoff_duration_seconds = ?, backoff_until = NULL WHERE id = ?`, rule.Name, enabledInt, backoffDurationSeconds, id); err != nil {
 		return restmodels.Rule{}, err
 	}
 
@@ -677,6 +696,15 @@ func (p *mariadbPersistence) UpdateNextOccurrence(ruleID int, t *time.Time) erro
 		val = t.UTC()
 	}
 	_, err := p.db.Exec(`UPDATE rules SET next_occurence = ? WHERE id = ?`, val, ruleID)
+	return err
+}
+
+func (p *mariadbPersistence) UpdateBackoffUntil(ruleID int, t *time.Time) error {
+	var val interface{}
+	if t != nil {
+		val = t.UTC()
+	}
+	_, err := p.db.Exec(`UPDATE rules SET backoff_until = ? WHERE id = ?`, val, ruleID)
 	return err
 }
 

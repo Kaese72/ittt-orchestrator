@@ -42,8 +42,8 @@ func main() {
 	}
 }
 
-// runAPI starts the REST API server together with the device-update consumer
-// and the rule-event publisher. It does not manage any scheduling state.
+// runAPI starts the REST API server. It only serves HTTP and publishes rule events;
+// it does not evaluate rules or trigger actions.
 func runAPI() {
 	db, err := mariadb.NewMariadbPersistence(config.Loaded.Database)
 	if err != nil {
@@ -52,12 +52,7 @@ func runAPI() {
 	}
 
 	dsClient := devicestore.NewClient(config.Loaded.DeviceStore.URL)
-	orch := orchestrator.New(db, dsClient)
-
-	if err := events.StartConsumer(context.Background(), config.Loaded.Event, orch); err != nil {
-		log.Error(err.Error(), map[string]interface{}{})
-		os.Exit(1)
-	}
+	evaluator := orchestrator.NewConditionEvaluator(db, dsClient)
 
 	publisher, err := events.NewRuleEventPublisher(config.Loaded.Event.ConnectionString)
 	if err != nil {
@@ -66,7 +61,7 @@ func runAPI() {
 	}
 	defer publisher.Close()
 
-	webapp := restwebapp.NewWebApp(db, orch, publisher)
+	webapp := restwebapp.NewWebApp(db, evaluator, publisher)
 
 	router := mux.NewRouter()
 	humaConfig := huma.DefaultConfig("ittt-orchestrator", "1.0.0")
@@ -96,9 +91,8 @@ func runAPI() {
 	}
 }
 
-// runRuleState starts the rule scheduling state manager. It consumes rule
-// events from RabbitMQ and maintains per-rule timers that trigger evaluation
-// and action dispatch at each rule's next occurrence.
+// runRuleState starts the rule evaluation and scheduling daemon. It consumes both
+// device-update events and rule events, evaluates condition trees, and triggers actions.
 func runRuleState() {
 	db, err := mariadb.NewMariadbPersistence(config.Loaded.Database)
 	if err != nil {
@@ -110,6 +104,11 @@ func runRuleState() {
 	orch := orchestrator.New(db, dsClient)
 	sched := scheduler.New(db, orch)
 
+	if err := events.StartConsumer(context.Background(), config.Loaded.Event, sched); err != nil {
+		log.Error(err.Error(), map[string]interface{}{})
+		os.Exit(1)
+	}
+
 	if err := events.StartRuleConsumer(context.Background(), config.Loaded.Event, sched); err != nil {
 		log.Error(err.Error(), map[string]interface{}{})
 		os.Exit(1)
@@ -118,6 +117,5 @@ func runRuleState() {
 	sched.Start()
 
 	log.Info("Starting ittt-orchestrator rule-state manager", map[string]interface{}{})
-	// Block forever; all work happens in goroutines driven by RabbitMQ and timers.
 	select {}
 }

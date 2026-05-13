@@ -20,4 +20,11 @@ type Rule struct {
 	ConditionTree  *ConditionTree `json:"condition-tree,omitempty"`
 	Actions        []Action       `json:"actions,omitempty"`
 	NextOccurrence *time.Time     `json:"next-occurence,omitempty"`
+	// BackoffDurationSeconds delays action triggering: when conditions first become true the rule
+	// reschedules itself this many seconds into the future instead of firing immediately. Actions
+	// only fire once that deadline passes and conditions are still true.
+	BackoffDurationSeconds *int64     `json:"backoff-duration-seconds,omitempty"`
+	// BackoffUntil is system-managed. It is set when a backoff countdown is in progress and
+	// cleared once the countdown expires or conditions become false.
+	BackoffUntil           *time.Time `json:"backoff-until,omitempty"`
 }

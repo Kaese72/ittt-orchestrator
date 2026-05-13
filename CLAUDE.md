@@ -6,15 +6,52 @@ ITTT (If-This-Then-That) automation orchestrator. Evaluates condition trees and 
 
 Two deployment modes, both share the same binary:
 
-- **`api`** — REST API (port 8080) + RabbitMQ device-update consumer. Handles CRUD for rules/actions, publishes rule events.
-- **`rule-state`** — Scheduling daemon. Maintains one goroutine per rule, fires evaluations at `next_occurrence`. No API surface.
+- **`api`** — REST API (port 8080). Handles CRUD for rules/actions, publishes rule events to RabbitMQ. No rule evaluation, no action triggering.
+- **`rule-state`** — Evaluation and scheduling daemon. Consumes both device-update events and rule events from RabbitMQ. Evaluates condition trees, triggers actions, and owns all scheduling state. No API surface.
 
 ```
-RabbitMQ (device updates) --> api mode --> MariaDB
-                                             ^
-rule-state mode <-- reads rules/actions -----+
-rule-state mode --> evaluates --> triggers device-store API
+User / UI
+    |
+    | HTTP
+    v
+[ api mode ]
+    |  CRUD rules/actions      |  rule upsert/delete events
+    +---------> MariaDB <------+
+    |                          |
+    | RabbitMQ upsert/delete   |
+    v                          |
+[ rule-state mode ] <----------+
+    ^
+    | RabbitMQ device-update events
+    |
+[ device-store ]
+    |
+    | capability triggers (HTTP)
+    v
+[ device-store ]
 ```
+
+## Mode responsibilities
+
+The two modes have strict, non-overlapping responsibilities. Do not blur this boundary when adding features.
+
+**`api` owns:**
+- REST API — all CRUD for rules and actions
+- Publishing rule events to RabbitMQ so `rule-state` stays in sync
+- Never writes `next_occurrence` or `backoff_until` — those are `rule-state`'s exclusive domain
+
+**`rule-state` owns:**
+- All rule evaluation — both scheduled (timer-based) and reactive (device updates)
+- All action triggering via device-store
+- All scheduling state: `next_occurrence`, `backoff_until`, in-process timers
+- Consumes both the device-update fanout and the rule-events fanout
+- On receiving an upsert event, always evaluates the rule immediately (in addition to rescheduling based on the result), so a newly created or updated rule takes effect without delay
+
+**Consequences of this split:**
+- `rule-state` is the only process that calls device-store capability endpoints
+- `next_occurrence` in DB has one meaning: the time rule-state last calculated for the next scheduled evaluation. It is written only by rule-state and read only by rule-state
+- If a feature needs to evaluate conditions or trigger actions, it belongs in `rule-state`
+- If a feature needs to expose or mutate rule/action data, it belongs in `api`
 
 ## Project Layout
 

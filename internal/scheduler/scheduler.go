@@ -9,15 +9,16 @@ import (
 	"github.com/Kaese72/ittt-orchestrator/eventmodels"
 	"github.com/Kaese72/ittt-orchestrator/internal/orchestrator"
 	"github.com/Kaese72/ittt-orchestrator/internal/persistence"
+	"github.com/Kaese72/ittt-orchestrator/restmodels"
 )
 
 // Scheduler maintains per-rule timers and fires rule evaluation at each rule's
 // next occurrence. It is the sole owner of scheduling state and is updated
-// exclusively through RabbitMQ rule events.
+// through RabbitMQ rule events and device-update events.
 type Scheduler struct {
-	db   persistence.PersistenceDB
-	orch *orchestrator.Orchestrator
-	mu   sync.Mutex
+	db     persistence.PersistenceDB
+	orch   *orchestrator.Orchestrator
+	mu     sync.Mutex
 	timers map[int]*time.Timer
 }
 
@@ -29,7 +30,7 @@ func New(db persistence.PersistenceDB, orch *orchestrator.Orchestrator) *Schedul
 	}
 }
 
-// Start seeds the initial schedule from the next_occurence stored in the database.
+// Start seeds the initial schedule from next_occurrence stored in the database.
 // Call this once after the scheduler is wired up.
 func (s *Scheduler) Start() {
 	rules, err := s.db.GetRules()
@@ -46,7 +47,8 @@ func (s *Scheduler) Start() {
 }
 
 // HandleRuleEvent is called by the RabbitMQ consumer whenever a rule is
-// created, updated, or deleted.
+// created, updated, or deleted. On upsert the rule is evaluated immediately
+// so the new or changed rule takes effect without delay.
 func (s *Scheduler) HandleRuleEvent(event eventmodels.RuleEvent) {
 	switch event.Event {
 	case "upsert":
@@ -55,15 +57,35 @@ func (s *Scheduler) HandleRuleEvent(event eventmodels.RuleEvent) {
 			log.Error(fmt.Sprintf("scheduler: failed to load rule %d: %s", event.RuleID, err.Error()), map[string]interface{}{})
 			return
 		}
-		if !rule.Enabled || rule.NextOccurrence == nil {
+		if !rule.Enabled {
 			s.cancel(event.RuleID)
 			return
 		}
-		s.scheduleAt(event.RuleID, *rule.NextOccurrence)
+		s.scheduleAt(event.RuleID, time.Now())
 	case "deleted":
 		s.cancel(event.RuleID)
 	default:
 		log.Error(fmt.Sprintf("scheduler: unknown rule event %q for rule %d", event.Event, event.RuleID), map[string]interface{}{})
+	}
+}
+
+// HandleDeviceUpdate is called for every device attribute update received from
+// the event bus. It finds rules that reference the updated device and evaluates
+// each one immediately.
+func (s *Scheduler) HandleDeviceUpdate(update eventmodels.DeviceAttributeUpdate) {
+	rules, err := s.db.GetRules()
+	if err != nil {
+		log.Error(fmt.Sprintf("scheduler: failed to load rules for device update: %s", err.Error()), map[string]interface{}{})
+		return
+	}
+	for _, rule := range rules {
+		if !rule.Enabled || rule.ConditionTree == nil {
+			continue
+		}
+		if !referencesDevice(*rule.ConditionTree, update.DeviceID) {
+			continue
+		}
+		s.evaluate(rule.ID, time.Now())
 	}
 }
 
@@ -82,7 +104,7 @@ func (s *Scheduler) scheduleAt(ruleID int, at time.Time) {
 		fmt.Sprintf("scheduling rule %d in %s (at %s)", ruleID, delay.Round(time.Second), at.UTC().Format(time.RFC3339)),
 		map[string]interface{}{},
 	)
-	s.timers[ruleID] = time.AfterFunc(delay, func() { s.fire(ruleID) })
+	s.timers[ruleID] = time.AfterFunc(delay, func() { s.evaluate(ruleID, at) })
 }
 
 // cancel stops and removes the timer for ruleID.
@@ -95,10 +117,10 @@ func (s *Scheduler) cancel(ruleID int) {
 	}
 }
 
-// fire is called when a rule's timer expires. It evaluates the rule, triggers
-// actions if the conditions are met, and reschedules for the next occurrence.
-func (s *Scheduler) fire(ruleID int) {
-	result, err := s.orch.EvaluateAndTrigger(ruleID)
+// evaluate assesses a rule at the given time, triggers actions if conditions are
+// met, persists the new next_occurrence, and reschedules the timer if needed.
+func (s *Scheduler) evaluate(ruleID int, evalTime time.Time) {
+	result, err := s.orch.EvaluateAndTrigger(ruleID, evalTime)
 	if err != nil {
 		log.Error(fmt.Sprintf("scheduler: evaluation of rule %d failed: %s", ruleID, err.Error()), map[string]interface{}{})
 		return
@@ -110,4 +132,14 @@ func (s *Scheduler) fire(ruleID int) {
 	if result.NextOccurrence != nil {
 		s.scheduleAt(ruleID, *result.NextOccurrence)
 	}
+}
+
+// referencesDevice reports whether the tree contains any condition that references deviceID.
+func referencesDevice(tree restmodels.ConditionTree, deviceID int) bool {
+	for _, id := range tree.DeviceReferences() {
+		if id == deviceID {
+			return true
+		}
+	}
+	return false
 }

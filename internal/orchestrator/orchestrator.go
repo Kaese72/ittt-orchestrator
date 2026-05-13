@@ -5,27 +5,68 @@ import (
 	"time"
 
 	log "github.com/Kaese72/huemie-lib/logging"
-	"github.com/Kaese72/ittt-orchestrator/eventmodels"
 	"github.com/Kaese72/ittt-orchestrator/internal/devicestore"
 	"github.com/Kaese72/ittt-orchestrator/internal/persistence"
 	"github.com/Kaese72/ittt-orchestrator/restmodels"
 )
 
-// Orchestrator evaluates rules against incoming device state changes and triggers
-// actions when conditions are met.
-type Orchestrator struct {
-	db       persistence.PersistenceDB
-	dsClient *devicestore.Client
+// DeviceStateReader is the read-only view of device-store used for condition evaluation.
+// This is all the api mode ever needs from device-store.
+type DeviceStateReader interface {
+	GetDevice(id int) (devicestore.Device, error)
 }
 
-func New(db persistence.PersistenceDB, dsClient *devicestore.Client) *Orchestrator {
+// DeviceStoreClient is the full device-store interface used by rule-state: condition
+// evaluation plus capability triggering.
+type DeviceStoreClient interface {
+	DeviceStateReader
+	TriggerDeviceCapability(id int, capability string, args map[string]any) error
+	TriggerGroupCapability(id int, capability string, args map[string]any) error
+}
+
+// ConditionEvaluator performs read-only rule condition evaluation. It is the only
+// orchestrator type used by the api mode.
+type ConditionEvaluator struct {
+	db       persistence.PersistenceDB
+	dsClient DeviceStateReader
+}
+
+func NewConditionEvaluator(db persistence.PersistenceDB, dsClient DeviceStateReader) *ConditionEvaluator {
+	return &ConditionEvaluator{db: db, dsClient: dsClient}
+}
+
+// EvaluateConditionTree evaluates the condition tree of the given rule against the
+// current time and live device state, returning the result without triggering any actions.
+func (e *ConditionEvaluator) EvaluateConditionTree(ruleID int) (restmodels.EvalResult, error) {
+	rule, err := e.db.GetRule(ruleID)
+	if err != nil {
+		return restmodels.EvalResult{}, err
+	}
+	if rule.ConditionTree == nil {
+		return restmodels.EvalResult{}, fmt.Errorf("rule %d has no condition tree", ruleID)
+	}
+	ctx := &evalContext{
+		dsClient:    e.dsClient,
+		deviceCache: make(map[int][]devicestore.Attribute),
+		now:         time.Now(),
+	}
+	return rule.ConditionTree.Evaluate(ctx), nil
+}
+
+// Orchestrator evaluates rules and triggers actions. It is only used by rule-state mode.
+type Orchestrator struct {
+	db       persistence.PersistenceDB
+	dsClient DeviceStoreClient
+}
+
+func New(db persistence.PersistenceDB, dsClient DeviceStoreClient) *Orchestrator {
 	return &Orchestrator{db: db, dsClient: dsClient}
 }
 
-// EvaluateAndTrigger evaluates the condition tree of the given rule, triggers
-// its actions if the result is true, and returns the full EvalResult so the
-// caller can act on NextOccurrence.
-func (o *Orchestrator) EvaluateAndTrigger(ruleID int) (restmodels.EvalResult, error) {
+// EvaluateAndTrigger evaluates the condition tree of the given rule at evalTime, applies
+// any configured backoff, triggers actions if appropriate, and returns the EvalResult so
+// the caller can act on NextOccurrence.
+func (o *Orchestrator) EvaluateAndTrigger(ruleID int, evalTime time.Time) (restmodels.EvalResult, error) {
 	rule, err := o.db.GetRule(ruleID)
 	if err != nil {
 		return restmodels.EvalResult{}, err
@@ -36,109 +77,70 @@ func (o *Orchestrator) EvaluateAndTrigger(ruleID int) (restmodels.EvalResult, er
 	if rule.ConditionTree == nil {
 		return restmodels.EvalResult{}, fmt.Errorf("rule %d has no condition tree", ruleID)
 	}
-	evalTime := time.Now()
-	if rule.NextOccurrence != nil {
-		evalTime = *rule.NextOccurrence
-	}
 	ctx := &evalContext{dsClient: o.dsClient, deviceCache: make(map[int][]devicestore.Attribute), now: evalTime}
 	result := rule.ConditionTree.Evaluate(ctx)
+
 	if result.Result {
-		for _, action := range rule.Actions {
-			if err := triggerAction(o.dsClient, action); err != nil {
-				log.Error(fmt.Sprintf("failed to trigger action %d for rule %d: %s", action.ActionID, ruleID, err.Error()), map[string]interface{}{})
+		if rule.BackoffDurationSeconds != nil && *rule.BackoffDurationSeconds > 0 {
+			backoffDuration := time.Duration(*rule.BackoffDurationSeconds) * time.Second
+			now := time.Now()
+			switch {
+			case rule.BackoffUntil == nil:
+				backoffUntil := now.Add(backoffDuration)
+				if err := o.db.UpdateBackoffUntil(ruleID, &backoffUntil); err != nil {
+					return result, err
+				}
+				result.NextOccurrence = &backoffUntil
+				log.Info(fmt.Sprintf("orchestrator: rule %d backoff started, will re-evaluate at %s", ruleID, backoffUntil.UTC().Format(time.RFC3339)), map[string]interface{}{})
+			case now.Before(*rule.BackoffUntil):
+				result.NextOccurrence = rule.BackoffUntil
+			default:
+				for _, action := range rule.Actions {
+					if err := triggerAction(o.dsClient, action); err != nil {
+						log.Error(fmt.Sprintf("failed to trigger action %d for rule %d: %s", action.ActionID, ruleID, err.Error()), map[string]interface{}{})
+					}
+				}
+				if err := o.db.UpdateBackoffUntil(ruleID, nil); err != nil {
+					return result, err
+				}
 			}
-		}
-	}
-	return result, nil
-}
-
-// EvaluateConditionTree evaluates the condition tree of the given rule against
-// the current time and live device state, returning the result and reason.
-func (o *Orchestrator) EvaluateConditionTree(ruleID int) (restmodels.EvalResult, error) {
-	rule, err := o.db.GetRule(ruleID)
-	if err != nil {
-		return restmodels.EvalResult{}, err
-	}
-	if rule.ConditionTree == nil {
-		return restmodels.EvalResult{}, fmt.Errorf("rule %d has no condition tree", ruleID)
-	}
-	ctx := &evalContext{
-		dsClient:    o.dsClient,
-		deviceCache: make(map[int][]devicestore.Attribute),
-		now:         time.Now(),
-	}
-	return rule.ConditionTree.Evaluate(ctx), nil
-
-}
-
-// HandleDeviceUpdate is called for every device attribute update received from
-// the event bus. It finds rules that reference the updated device, evaluates
-// their condition trees, and triggers actions for those that evaluate to true.
-func (o *Orchestrator) HandleDeviceUpdate(update eventmodels.DeviceAttributeUpdate) {
-	rules, err := o.db.GetRules()
-	if err != nil {
-		log.Error(fmt.Sprintf("failed to load rules: %s", err.Error()), map[string]interface{}{})
-		return
-	}
-
-	for _, rule := range rules {
-		if !rule.Enabled {
-			continue
-		}
-		if rule.ConditionTree == nil {
-			log.Error(fmt.Sprintf("skipping rule %d: no condition tree", rule.ID), map[string]interface{}{})
-			continue
-		}
-		if !referencesDevice(*rule.ConditionTree, update.DeviceID) {
-			continue
-		}
-		ctx := &evalContext{
-			dsClient:    o.dsClient,
-			deviceCache: make(map[int][]devicestore.Attribute),
-			now:         time.Now(),
-		}
-		result := rule.ConditionTree.Evaluate(ctx)
-		if result.Result {
+		} else {
 			for _, action := range rule.Actions {
 				if err := triggerAction(o.dsClient, action); err != nil {
-					log.Error(fmt.Sprintf("failed to trigger action %d for rule %d: %s", action.ActionID, rule.ID, err.Error()), map[string]interface{}{})
+					log.Error(fmt.Sprintf("failed to trigger action %d for rule %d: %s", action.ActionID, ruleID, err.Error()), map[string]interface{}{})
 				}
 			}
 		}
-	}
-}
-
-// referencesDevice reports whether the tree contains any condition that references deviceID.
-func referencesDevice(tree restmodels.ConditionTree, deviceID int) bool {
-	for _, id := range tree.DeviceReferences() {
-		if id == deviceID {
-			return true
+	} else {
+		if rule.BackoffUntil != nil {
+			if err := o.db.UpdateBackoffUntil(ruleID, nil); err != nil {
+				return result, err
+			}
 		}
 	}
-	return false
+
+	return result, nil
 }
 
-// evalContext carries per-evaluation state: a device-store client, a cache
-// of already-fetched device attributes, and the logical evaluation time.
+// evalContext carries per-evaluation state: a device-store reader, a cache of
+// already-fetched device attributes, and the logical evaluation time.
 type evalContext struct {
-	dsClient    *devicestore.Client
+	dsClient    DeviceStateReader
 	deviceCache map[int][]devicestore.Attribute
 	now         time.Time
 }
 
-// Now implements restmodels.EvalContext.
 func (c *evalContext) Now() time.Time {
 	return c.now
 }
 
-// GetDeviceAttribute implements restmodels.EvalContext.
 func (c *evalContext) GetDeviceAttribute(deviceID int, attribute string) (*devicestore.Attribute, error) {
 	if _, ok := c.deviceCache[deviceID]; !ok {
 		device, err := c.dsClient.GetDevice(deviceID)
 		if err != nil {
 			return nil, err
 		}
-		c.deviceCache[deviceID] = device.Attributes
+		c.deviceCache[deviceID] = device.Attributes // devicestore.Device is a value type
 	}
 	for _, attr := range c.deviceCache[deviceID] {
 		if attr.Name == attribute {
@@ -148,7 +150,7 @@ func (c *evalContext) GetDeviceAttribute(deviceID int, attribute string) (*devic
 	return nil, nil
 }
 
-func triggerAction(dsClient *devicestore.Client, action restmodels.Action) error {
+func triggerAction(dsClient DeviceStoreClient, action restmodels.Action) error {
 	switch action.Type {
 	case "device-capability":
 		return dsClient.TriggerDeviceCapability(action.ID, action.Capability, action.Args)

@@ -7,13 +7,17 @@ import (
 	log "github.com/Kaese72/huemie-lib/logging"
 	"github.com/Kaese72/ittt-orchestrator/eventmodels"
 	"github.com/Kaese72/ittt-orchestrator/internal/config"
-	"github.com/Kaese72/ittt-orchestrator/internal/scheduler"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+// RuleEventHandler processes rule lifecycle events.
+type RuleEventHandler interface {
+	HandleRuleEvent(eventmodels.RuleEvent)
+}
+
 // StartRuleConsumer subscribes to the ruleEvents fanout exchange and forwards
-// each message to the scheduler. It runs until ctx is cancelled.
-func StartRuleConsumer(ctx context.Context, conf config.EventConfig, sched *scheduler.Scheduler) error {
+// each message to the handler. It runs until ctx is cancelled.
+func StartRuleConsumer(ctx context.Context, conf config.EventConfig, handler RuleEventHandler) error {
 	conn, err := amqp.Dial(conf.ConnectionString)
 	if err != nil {
 		return err
@@ -62,7 +66,7 @@ func StartRuleConsumer(ctx context.Context, conf config.EventConfig, sched *sche
 					log.Error("failed to unmarshal rule event: "+err.Error(), map[string]interface{}{})
 					continue
 				}
-				sched.HandleRuleEvent(event)
+				handler.HandleRuleEvent(event)
 			}
 		}
 	}()
