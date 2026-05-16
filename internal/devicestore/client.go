@@ -36,7 +36,7 @@ func NewClient(baseURL string) *Client {
 }
 
 func (c *Client) GetDevice(id int) (Device, error) {
-	resp, err := c.httpClient.Get(fmt.Sprintf("%s/device-store/v0/devices/%d", c.baseURL, id))
+	resp, err := c.httpClient.Get(fmt.Sprintf("%s/device-store-internal/v0/devices/%d", c.baseURL, id))
 	if err != nil {
 		return Device{}, err
 	}
@@ -53,11 +53,11 @@ func (c *Client) GetDevice(id int) (Device, error) {
 }
 
 func (c *Client) TriggerDeviceCapability(id int, capability string, args map[string]any) error {
-	return c.triggerCapability(fmt.Sprintf("%s/device-store/v0/devices/%d/capabilities/%s", c.baseURL, id, capability), args)
+	return c.triggerCapability(fmt.Sprintf("%s/device-store-internal/v0/devices/%d/capabilities/%s", c.baseURL, id, capability), args)
 }
 
 func (c *Client) TriggerGroupCapability(id int, capability string, args map[string]any) error {
-	return c.triggerCapability(fmt.Sprintf("%s/device-store/v0/groups/%d/capabilities/%s", c.baseURL, id, capability), args)
+	return c.triggerCapability(fmt.Sprintf("%s/device-store-internal/v0/groups/%d/capabilities/%s", c.baseURL, id, capability), args)
 }
 
 func (c *Client) triggerCapability(url string, args map[string]any) error {
