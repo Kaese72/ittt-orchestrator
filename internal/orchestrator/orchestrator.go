@@ -53,6 +53,21 @@ func (e *ConditionEvaluator) EvaluateConditionTree(ruleID int) (restmodels.EvalR
 	return rule.ConditionTree.Evaluate(ctx), nil
 }
 
+// EvaluateConditionTreeDirect evaluates the given condition tree at the given time (or now
+// if at is nil), without looking up any rule from the database.
+func (e *ConditionEvaluator) EvaluateConditionTreeDirect(tree *restmodels.ConditionTree, at *time.Time) (restmodels.EvalResult, error) {
+	now := time.Now()
+	if at != nil {
+		now = *at
+	}
+	ctx := &evalContext{
+		dsClient:    e.dsClient,
+		deviceCache: make(map[int][]devicestore.Attribute),
+		now:         now,
+	}
+	return tree.Evaluate(ctx), nil
+}
+
 // Orchestrator evaluates rules and triggers actions. It is only used by rule-state mode.
 type Orchestrator struct {
 	db       persistence.PersistenceDB

@@ -20,9 +20,10 @@ func internalError(err error) error {
 }
 
 // RuleEvaluator is the read-only rule evaluation capability the webapp exposes
-// via the /evaluate endpoint.
+// via the /evaluate endpoints.
 type RuleEvaluator interface {
 	EvaluateConditionTree(ruleID int) (restmodels.EvalResult, error)
+	EvaluateConditionTreeDirect(tree *restmodels.ConditionTree, at *time.Time) (restmodels.EvalResult, error)
 }
 
 type WebApp struct {
@@ -171,6 +172,33 @@ func (w WebApp) EvaluateRule(ctx context.Context, input *struct {
 	RuleID int `path:"ruleID"`
 }) (*struct{ Body EvaluateRuleOutput }, error) {
 	evalResult, err := w.evaluator.EvaluateConditionTree(input.RuleID)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	return &struct{ Body EvaluateRuleOutput }{Body: EvaluateRuleOutput{
+		Result:         evalResult.Result,
+		Reason:         evalResult.Reason,
+		NextOccurrence: evalResult.NextOccurrence,
+	}}, nil
+}
+
+// EvaluateConditionTreeDirectInput is the request body for the standalone evaluate endpoint.
+// The rule field holds the rule whose condition tree is to be evaluated; At optionally
+// pins the evaluation clock to a specific point in time (defaults to now).
+type EvaluateConditionTreeDirectInput struct {
+	Rule restmodels.Rule `json:"rule"`
+	At   *time.Time      `json:"at,omitempty"`
+}
+
+// EvaluateConditionTreeDirect evaluates a condition tree supplied in the request body
+// without requiring the rule to exist in the database.
+func (w WebApp) EvaluateConditionTreeDirect(ctx context.Context, input *struct {
+	Body EvaluateConditionTreeDirectInput
+}) (*struct{ Body EvaluateRuleOutput }, error) {
+	if input.Body.Rule.ConditionTree == nil {
+		return nil, huma.Error400BadRequest("rule must have a condition-tree")
+	}
+	evalResult, err := w.evaluator.EvaluateConditionTreeDirect(input.Body.Rule.ConditionTree, input.Body.At)
 	if err != nil {
 		return nil, internalError(err)
 	}

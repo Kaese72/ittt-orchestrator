@@ -56,10 +56,15 @@ func (c DeviceStoreConfig) Validate() error {
 	return nil
 }
 
+type AuthConfig struct {
+	RSAPublicKeyPath string `mapstructure:"rsa-public-key-path"`
+}
+
 type Config struct {
 	Database    DatabaseConfig    `mapstructure:"database"`
 	Event       EventConfig       `mapstructure:"event"`
 	DeviceStore DeviceStoreConfig `mapstructure:"device-store"`
+	Auth        AuthConfig        `mapstructure:"auth"`
 }
 
 func (c Config) Validate() error {
@@ -99,6 +104,9 @@ func init() {
 	// Device store
 	viper.BindEnv("device-store.url")
 	viper.SetDefault("device-store.url", "http://device-store:8080")
+
+	// Authentication service public key (RS256 use-token verification; api mode only)
+	viper.BindEnv("auth.rsa-public-key-path")
 
 	if err := viper.Unmarshal(&Loaded); err != nil {
 		log.Error(err.Error(), map[string]interface{}{})

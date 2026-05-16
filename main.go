@@ -8,6 +8,7 @@ import (
 	_ "time/tzdata"
 
 	log "github.com/Kaese72/huemie-lib/logging"
+	"github.com/Kaese72/huemie-lib/middleware"
 	"github.com/Kaese72/ittt-orchestrator/internal/config"
 	"github.com/Kaese72/ittt-orchestrator/internal/devicestore"
 	"github.com/Kaese72/ittt-orchestrator/internal/events"
@@ -63,7 +64,14 @@ func runAPI() {
 
 	webapp := restwebapp.NewWebApp(db, evaluator, publisher)
 
+	pubKey, err := middleware.LoadPublicKeyFromFile(config.Loaded.Auth.RSAPublicKeyPath)
+	if err != nil {
+		log.Error(err.Error(), map[string]interface{}{})
+		os.Exit(1)
+	}
+
 	router := mux.NewRouter()
+	router.Use(middleware.UseTokenMiddleware(pubKey, "/ittt-orchestrator/openapi", "/ittt-orchestrator/docs"))
 	humaConfig := huma.DefaultConfig("ittt-orchestrator", "1.0.0")
 	humaConfig.OpenAPIPath = "/ittt-orchestrator/openapi"
 	humaConfig.DocsPath = "/ittt-orchestrator/docs"
@@ -78,6 +86,7 @@ func runAPI() {
 	huma.Delete(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}", webapp.DeleteRule)
 
 	huma.Get(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/evaluate", webapp.EvaluateRule)
+	huma.Post(api, "/ittt-orchestrator/v0/evaluate", webapp.EvaluateConditionTreeDirect)
 	huma.Get(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/actions", webapp.GetActions)
 	huma.Post(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/actions", webapp.CreateAction)
 	huma.Get(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/actions/{actionID:[0-9]+}", webapp.GetAction)
