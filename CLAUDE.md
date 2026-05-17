@@ -86,7 +86,7 @@ See `README.md`
 | `DATABASE_DATABASE` | `itttorchestrator` | no |
 | `EVENT_CONNECTIONSTRING` | — | yes |
 | `EVENT_DEVICE_UPDATES` | `deviceUpdates` | no |
-| `DEVICE_STORE_URL` | `http://device-store:8080` | no |
+| `DEVICE_STORE_URL` | `http://device-store-internal:8081` | no |
 
 Viper maps dots/hyphens to underscores. Nested config keys use `_` as separator.
 

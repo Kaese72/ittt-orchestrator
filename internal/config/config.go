@@ -103,7 +103,7 @@ func init() {
 
 	// Device store
 	viper.BindEnv("device-store.url")
-	viper.SetDefault("device-store.url", "http://device-store:8080")
+	viper.SetDefault("device-store.url", "http://device-store-internal:8081")
 
 	// Authentication service public key (RS256 use-token verification; api mode only)
 	viper.BindEnv("auth.rsa-public-key-path")
