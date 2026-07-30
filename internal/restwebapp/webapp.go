@@ -43,13 +43,22 @@ func (w WebApp) publishRuleEvent(ruleID int, event string) {
 	}
 }
 
-// GetRules returns all automation rules
-func (w WebApp) GetRules(ctx context.Context, _ *struct{}) (*struct{ Body []restmodels.Rule }, error) {
-	rules, err := w.db.GetRules()
+// GetRules returns a page of automation rules
+func (w WebApp) GetRules(ctx context.Context, input *struct {
+	Offset int `query:"offset" default:"0" minimum:"0" doc:"number of matching rules to skip"`
+	Limit  int `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"maximum number of rules to return"`
+}) (*struct {
+	TotalCount int `header:"X-Total-Count" doc:"total number of rules, ignoring pagination"`
+	Body       []restmodels.Rule
+}, error) {
+	rules, total, err := w.db.GetRules(restmodels.Pagination{Offset: input.Offset, Limit: input.Limit})
 	if err != nil {
 		return nil, internalError(err)
 	}
-	return &struct{ Body []restmodels.Rule }{Body: rules}, nil
+	return &struct {
+		TotalCount int `header:"X-Total-Count" doc:"total number of rules, ignoring pagination"`
+		Body       []restmodels.Rule
+	}{TotalCount: total, Body: rules}, nil
 }
 
 // GetRule returns a single rule by ID

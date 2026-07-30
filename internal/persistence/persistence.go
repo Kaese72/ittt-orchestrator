@@ -8,7 +8,9 @@ import (
 
 // PersistenceDB is the interface all persistence implementations must satisfy
 type PersistenceDB interface {
-	GetRules() ([]restmodels.Rule, error)
+	// GetRules returns the page of rules, along with the total number of
+	// rules (ignoring pagination).
+	GetRules(pagination restmodels.Pagination) ([]restmodels.Rule, int, error)
 	GetRule(id int) (restmodels.Rule, error)
 	CreateRule(rule restmodels.Rule) (restmodels.Rule, error)
 	UpdateRule(id int, rule restmodels.Rule) (restmodels.Rule, error)

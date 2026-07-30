@@ -33,7 +33,7 @@ func New(db persistence.PersistenceDB, orch *orchestrator.Orchestrator) *Schedul
 // Start seeds the initial schedule from next_occurrence stored in the database.
 // Call this once after the scheduler is wired up.
 func (s *Scheduler) Start() {
-	rules, err := s.db.GetRules()
+	rules, _, err := s.db.GetRules(restmodels.Pagination{})
 	if err != nil {
 		log.Error(fmt.Sprintf("scheduler start: failed to load rules: %s", err.Error()), map[string]interface{}{})
 		return
@@ -74,7 +74,7 @@ func (s *Scheduler) HandleRuleEvent(event eventmodels.RuleEvent) {
 // condition has a cooldown, the rule is scheduled to re-evaluate after the cooldown
 // expires; otherwise it is evaluated immediately.
 func (s *Scheduler) HandleDeviceUpdate(update eventmodels.DeviceAttributeUpdate) {
-	rules, err := s.db.GetRules()
+	rules, _, err := s.db.GetRules(restmodels.Pagination{})
 	if err != nil {
 		log.Error(fmt.Sprintf("scheduler: failed to load rules for device update: %s", err.Error()), map[string]interface{}{})
 		return

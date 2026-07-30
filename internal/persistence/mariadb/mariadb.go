@@ -471,10 +471,42 @@ func (p *mariadbPersistence) loadRule(id int) (restmodels.Rule, error) {
 	return rule, nil
 }
 
-func (p *mariadbPersistence) GetRules() ([]restmodels.Rule, error) {
-	rows, err := p.db.Query(`SELECT id FROM rules ORDER BY id`)
+// paginationClause returns the SQL "LIMIT ? OFFSET ?" fragment and its arguments
+// for the given pagination. A zero Limit means unbounded, in which case no
+// clause is applied.
+func paginationClause(pagination restmodels.Pagination) (string, []any) {
+	if pagination.Limit <= 0 {
+		return "", nil
+	}
+	offset := pagination.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	return " LIMIT ? OFFSET ?", []any{pagination.Limit, offset}
+}
+
+// countRows executes "SELECT COUNT(*) FROM <table>" and returns the total
+// number of rows, ignoring pagination.
+func countRows(db *sql.DB, table string) (int, error) {
+	var total int
+	row := db.QueryRow(`SELECT COUNT(*) FROM ` + table)
+	if err := row.Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func (p *mariadbPersistence) GetRules(pagination restmodels.Pagination) ([]restmodels.Rule, int, error) {
+	total, err := countRows(p.db, "rules")
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+	query := `SELECT id FROM rules ORDER BY id`
+	limitClause, limitArgs := paginationClause(pagination)
+	query += limitClause
+	rows, err := p.db.Query(query, limitArgs...)
+	if err != nil {
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -482,23 +514,23 @@ func (p *mariadbPersistence) GetRules() ([]restmodels.Rule, error) {
 	for rows.Next() {
 		var id int
 		if err := rows.Scan(&id); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	var rules []restmodels.Rule
 	for _, id := range ids {
 		rule, err := p.loadRule(id)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		rules = append(rules, rule)
 	}
-	return rules, nil
+	return rules, total, nil
 }
 
 func (p *mariadbPersistence) GetRule(id int) (restmodels.Rule, error) {
