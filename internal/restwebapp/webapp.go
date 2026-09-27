@@ -7,6 +7,7 @@ import (
 
 	"github.com/Kaese72/authentication/usertoken"
 	log "github.com/Kaese72/huemie-lib/logging"
+	"github.com/Kaese72/huemie-lib/query"
 	"github.com/Kaese72/ittt-orchestrator/eventmodels"
 	"github.com/Kaese72/ittt-orchestrator/internal/events"
 	"github.com/Kaese72/ittt-orchestrator/internal/persistence"
@@ -68,23 +69,32 @@ func (w WebApp) publishRuleEvent(ruleID int, event string) {
 
 // GetRules returns a page of automation rules
 func (w WebApp) GetRules(ctx context.Context, input *struct {
-	Offset int `query:"offset" default:"0" minimum:"0" doc:"number of matching rules to skip"`
-	Limit  int `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"maximum number of rules to return"`
+	Filters string `query:"filters" doc:"a string JSON array of objects containing field, operator, and value for filtering"`
+	Sort    string `query:"sort" doc:"a string JSON array of objects containing field and direction ('asc' or 'desc') for sorting"`
+	query.Pagination
 }) (*struct {
-	TotalCount int `header:"X-Total-Count" doc:"total number of rules, ignoring pagination"`
-	Body       []restmodels.Rule
+	query.TotalCount
+	Body []restmodels.Rule
 }, error) {
 	if err := requireRulesView(ctx); err != nil {
 		return nil, err
 	}
-	rules, total, err := w.db.GetRules(restmodels.Pagination{Offset: input.Offset, Limit: input.Limit})
+	filters, err := query.ParseFilters(input.Filters)
+	if err != nil {
+		return nil, err
+	}
+	sorts, err := query.ParseSort(input.Sort)
+	if err != nil {
+		return nil, err
+	}
+	rules, total, err := w.db.GetRules(filters, sorts, query.Pagination{Offset: input.Offset, Limit: input.Limit})
 	if err != nil {
 		return nil, internalError(err)
 	}
 	return &struct {
-		TotalCount int `header:"X-Total-Count" doc:"total number of rules, ignoring pagination"`
-		Body       []restmodels.Rule
-	}{TotalCount: total, Body: rules}, nil
+		query.TotalCount
+		Body []restmodels.Rule
+	}{TotalCount: query.TotalCount{TotalCount: total}, Body: rules}, nil
 }
 
 // GetRule returns a single rule by ID

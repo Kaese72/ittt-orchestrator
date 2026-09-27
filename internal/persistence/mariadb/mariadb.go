@@ -4,13 +4,30 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Kaese72/ittt-orchestrator/internal/config"
 	"github.com/Kaese72/ittt-orchestrator/restmodels"
+	// aliased: GetRules (below) builds its SQL as a local "query" variable,
+	// which would otherwise shadow the package.
+	libquery "github.com/Kaese72/huemie-lib/query"
 	"github.com/danielgtaylor/huma/v2"
 	_ "github.com/go-sql-driver/mysql"
 )
+
+// ruleFilters defines what filters are available for the rules model.
+var ruleFilters = map[string]libquery.FieldSpec{
+	"name":    libquery.Merge(libquery.TextOperators("name")),
+	"enabled": libquery.Merge(libquery.BoolOperator("enabled")),
+}
+
+// ruleSortFields are the fields "sort" may reference for GetRules. The rules
+// table has no timestamp columns, so id/name are the only candidates.
+var ruleSortFields = map[string]string{
+	"id":   "id",
+	"name": "name",
+}
 
 type mariadbPersistence struct {
 	db *sql.DB
@@ -474,7 +491,7 @@ func (p *mariadbPersistence) loadRule(id int) (restmodels.Rule, error) {
 // paginationClause returns the SQL "LIMIT ? OFFSET ?" fragment and its arguments
 // for the given pagination. A zero Limit means unbounded, in which case no
 // clause is applied.
-func paginationClause(pagination restmodels.Pagination) (string, []any) {
+func paginationClause(pagination libquery.Pagination) (string, []any) {
 	if pagination.Limit <= 0 {
 		return "", nil
 	}
@@ -485,26 +502,43 @@ func paginationClause(pagination restmodels.Pagination) (string, []any) {
 	return " LIMIT ? OFFSET ?", []any{pagination.Limit, offset}
 }
 
-// countRows executes "SELECT COUNT(*) FROM <table>" and returns the total
-// number of rows, ignoring pagination.
-func countRows(db *sql.DB, table string) (int, error) {
+// countRows executes "SELECT COUNT(*) FROM <table> [WHERE <whereClause>]" and
+// returns the total number of matching rows, ignoring pagination.
+func countRows(db *sql.DB, table string, whereClause string, args []any) (int, error) {
+	q := `SELECT COUNT(*) FROM ` + table
+	if whereClause != "" {
+		q += " WHERE " + whereClause
+	}
 	var total int
-	row := db.QueryRow(`SELECT COUNT(*) FROM ` + table)
+	row := db.QueryRow(q, args...)
 	if err := row.Scan(&total); err != nil {
 		return 0, err
 	}
 	return total, nil
 }
 
-func (p *mariadbPersistence) GetRules(pagination restmodels.Pagination) ([]restmodels.Rule, int, error) {
-	total, err := countRows(p.db, "rules")
+func (p *mariadbPersistence) GetRules(filters []libquery.Filter, sorts []libquery.Sort, pagination libquery.Pagination) ([]restmodels.Rule, int, error) {
+	fragments, args, err := libquery.Translate(filters, ruleFilters)
 	if err != nil {
 		return nil, 0, err
 	}
-	query := `SELECT id FROM rules ORDER BY id`
+	whereClause := strings.Join(fragments, " AND ")
+	total, err := countRows(p.db, "rules", whereClause, args)
+	if err != nil {
+		return nil, 0, err
+	}
+	orderBy, err := libquery.BuildOrderBy(sorts, ruleSortFields, "id")
+	if err != nil {
+		return nil, 0, err
+	}
+	query := `SELECT id FROM rules`
+	if whereClause != "" {
+		query += " WHERE " + whereClause
+	}
+	query += " ORDER BY " + orderBy
 	limitClause, limitArgs := paginationClause(pagination)
 	query += limitClause
-	rows, err := p.db.Query(query, limitArgs...)
+	rows, err := p.db.Query(query, append(append([]any{}, args...), limitArgs...)...)
 	if err != nil {
 		return nil, 0, err
 	}
