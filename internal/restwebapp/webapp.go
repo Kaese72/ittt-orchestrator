@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Kaese72/authentication/usertoken"
 	log "github.com/Kaese72/huemie-lib/logging"
 	"github.com/Kaese72/ittt-orchestrator/eventmodels"
 	"github.com/Kaese72/ittt-orchestrator/internal/events"
@@ -17,6 +18,28 @@ import (
 func internalError(err error) error {
 	log.Error(err.Error(), map[string]interface{}{})
 	return huma.Error500InternalServerError(err.Error())
+}
+
+// requireRulesView/requireRulesModify return a huma error unless the caller
+// (as put in ctx by usertoken.Middleware) may view/modify automation rules.
+// Every endpoint dealing with rules or actions in this file calls one of the
+// two first; admins always pass. GetStatus and GetTimezones expose no
+// automation-rule data, so they are left unguarded (any authenticated caller
+// may use them).
+func requireRulesView(ctx context.Context) error {
+	permissions, ok := usertoken.PermissionsFromContext(ctx)
+	if !ok || !permissions.HasView(usertoken.ResourceAutomationRules) {
+		return huma.Error403Forbidden("view access to automation rules is required")
+	}
+	return nil
+}
+
+func requireRulesModify(ctx context.Context) error {
+	permissions, ok := usertoken.PermissionsFromContext(ctx)
+	if !ok || !permissions.HasModify(usertoken.ResourceAutomationRules) {
+		return huma.Error403Forbidden("modify access to automation rules is required")
+	}
+	return nil
 }
 
 // RuleEvaluator is the read-only rule evaluation capability the webapp exposes
@@ -51,6 +74,9 @@ func (w WebApp) GetRules(ctx context.Context, input *struct {
 	TotalCount int `header:"X-Total-Count" doc:"total number of rules, ignoring pagination"`
 	Body       []restmodels.Rule
 }, error) {
+	if err := requireRulesView(ctx); err != nil {
+		return nil, err
+	}
 	rules, total, err := w.db.GetRules(restmodels.Pagination{Offset: input.Offset, Limit: input.Limit})
 	if err != nil {
 		return nil, internalError(err)
@@ -65,6 +91,9 @@ func (w WebApp) GetRules(ctx context.Context, input *struct {
 func (w WebApp) GetRule(ctx context.Context, input *struct {
 	RuleID int `path:"ruleID"`
 }) (*struct{ Body restmodels.Rule }, error) {
+	if err := requireRulesView(ctx); err != nil {
+		return nil, err
+	}
 	rule, err := w.db.GetRule(input.RuleID)
 	if err != nil {
 		return nil, internalError(err)
@@ -78,6 +107,9 @@ func (w WebApp) CreateRule(ctx context.Context, input *struct {
 }) (*struct {
 	Body restmodels.Rule
 }, error) {
+	if err := requireRulesModify(ctx); err != nil {
+		return nil, err
+	}
 	created, err := w.db.CreateRule(input.Body)
 	if err != nil {
 		return nil, internalError(err)
@@ -91,6 +123,9 @@ func (w WebApp) UpdateRule(ctx context.Context, input *struct {
 	RuleID int `path:"ruleID"`
 	Body   restmodels.Rule
 }) (*struct{ Body restmodels.Rule }, error) {
+	if err := requireRulesModify(ctx); err != nil {
+		return nil, err
+	}
 	updated, err := w.db.UpdateRule(input.RuleID, input.Body)
 	if err != nil {
 		return nil, internalError(err)
@@ -103,6 +138,9 @@ func (w WebApp) UpdateRule(ctx context.Context, input *struct {
 func (w WebApp) DeleteRule(ctx context.Context, input *struct {
 	RuleID int `path:"ruleID"`
 }) (*struct{}, error) {
+	if err := requireRulesModify(ctx); err != nil {
+		return nil, err
+	}
 	if err := w.db.DeleteRule(input.RuleID); err != nil {
 		return nil, internalError(err)
 	}
@@ -114,6 +152,9 @@ func (w WebApp) DeleteRule(ctx context.Context, input *struct {
 func (w WebApp) GetActions(ctx context.Context, input *struct {
 	RuleID int `path:"ruleID"`
 }) (*struct{ Body []restmodels.Action }, error) {
+	if err := requireRulesView(ctx); err != nil {
+		return nil, err
+	}
 	actions, err := w.db.GetActions(input.RuleID)
 	if err != nil {
 		return nil, internalError(err)
@@ -126,6 +167,9 @@ func (w WebApp) GetAction(ctx context.Context, input *struct {
 	RuleID   int `path:"ruleID"`
 	ActionID int `path:"actionID"`
 }) (*struct{ Body restmodels.Action }, error) {
+	if err := requireRulesView(ctx); err != nil {
+		return nil, err
+	}
 	action, err := w.db.GetAction(input.RuleID, input.ActionID)
 	if err != nil {
 		return nil, internalError(err)
@@ -138,6 +182,9 @@ func (w WebApp) CreateAction(ctx context.Context, input *struct {
 	RuleID int `path:"ruleID"`
 	Body   restmodels.Action
 }) (*struct{ Body restmodels.Action }, error) {
+	if err := requireRulesModify(ctx); err != nil {
+		return nil, err
+	}
 	created, err := w.db.CreateAction(input.RuleID, input.Body)
 	if err != nil {
 		return nil, internalError(err)
@@ -151,6 +198,9 @@ func (w WebApp) UpdateAction(ctx context.Context, input *struct {
 	ActionID int `path:"actionID"`
 	Body     restmodels.Action
 }) (*struct{ Body restmodels.Action }, error) {
+	if err := requireRulesModify(ctx); err != nil {
+		return nil, err
+	}
 	updated, err := w.db.UpdateAction(input.RuleID, input.ActionID, input.Body)
 	if err != nil {
 		return nil, internalError(err)
@@ -163,6 +213,9 @@ func (w WebApp) DeleteAction(ctx context.Context, input *struct {
 	RuleID   int `path:"ruleID"`
 	ActionID int `path:"actionID"`
 }) (*struct{}, error) {
+	if err := requireRulesModify(ctx); err != nil {
+		return nil, err
+	}
 	if err := w.db.DeleteAction(input.RuleID, input.ActionID); err != nil {
 		return nil, internalError(err)
 	}
@@ -180,6 +233,9 @@ type EvaluateRuleOutput struct {
 func (w WebApp) EvaluateRule(ctx context.Context, input *struct {
 	RuleID int `path:"ruleID"`
 }) (*struct{ Body EvaluateRuleOutput }, error) {
+	if err := requireRulesView(ctx); err != nil {
+		return nil, err
+	}
 	evalResult, err := w.evaluator.EvaluateConditionTree(input.RuleID)
 	if err != nil {
 		return nil, internalError(err)
@@ -204,6 +260,9 @@ type EvaluateConditionTreeDirectInput struct {
 func (w WebApp) EvaluateConditionTreeDirect(ctx context.Context, input *struct {
 	Body EvaluateConditionTreeDirectInput
 }) (*struct{ Body EvaluateRuleOutput }, error) {
+	if err := requireRulesView(ctx); err != nil {
+		return nil, err
+	}
 	if input.Body.Rule.ConditionTree == nil {
 		return nil, huma.Error400BadRequest("rule must have a condition-tree")
 	}
