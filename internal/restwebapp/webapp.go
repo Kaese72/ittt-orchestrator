@@ -23,7 +23,7 @@ func internalError(err error) error {
 
 // requireRulesView/requireRulesModify return a huma error unless the caller
 // (as put in ctx by usertoken.Middleware) may view/modify automation rules.
-// Every endpoint dealing with rules or actions in this file calls one of the
+// Every endpoint dealing with rules in this file calls one of the
 // two first; admins always pass. GetStatus and GetTimezones expose no
 // automation-rule data, so they are left unguarded (any authenticated caller
 // may use them).
@@ -111,7 +111,7 @@ func (w WebApp) GetRule(ctx context.Context, input *struct {
 	return &struct{ Body restmodels.Rule }{Body: rule}, nil
 }
 
-// CreateRule creates a new automation rule
+// CreateRule creates a new automation rule, including its condition tree and actions
 func (w WebApp) CreateRule(ctx context.Context, input *struct {
 	Body restmodels.Rule
 }) (*struct {
@@ -128,7 +128,7 @@ func (w WebApp) CreateRule(ctx context.Context, input *struct {
 	return &struct{ Body restmodels.Rule }{Body: created}, nil
 }
 
-// UpdateRule replaces an existing rule
+// UpdateRule replaces an existing rule, including its condition tree and actions
 func (w WebApp) UpdateRule(ctx context.Context, input *struct {
 	RuleID int `path:"ruleID"`
 	Body   restmodels.Rule
@@ -155,80 +155,6 @@ func (w WebApp) DeleteRule(ctx context.Context, input *struct {
 		return nil, internalError(err)
 	}
 	w.publishRuleEvent(input.RuleID, "deleted")
-	return nil, nil
-}
-
-// GetActions returns all actions for a rule
-func (w WebApp) GetActions(ctx context.Context, input *struct {
-	RuleID int `path:"ruleID"`
-}) (*struct{ Body []restmodels.Action }, error) {
-	if err := requireRulesView(ctx); err != nil {
-		return nil, err
-	}
-	actions, err := w.db.GetActions(input.RuleID)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	return &struct{ Body []restmodels.Action }{Body: actions}, nil
-}
-
-// GetAction returns a single action by ID
-func (w WebApp) GetAction(ctx context.Context, input *struct {
-	RuleID   int `path:"ruleID"`
-	ActionID int `path:"actionID"`
-}) (*struct{ Body restmodels.Action }, error) {
-	if err := requireRulesView(ctx); err != nil {
-		return nil, err
-	}
-	action, err := w.db.GetAction(input.RuleID, input.ActionID)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	return &struct{ Body restmodels.Action }{Body: action}, nil
-}
-
-// CreateAction adds a new action to a rule
-func (w WebApp) CreateAction(ctx context.Context, input *struct {
-	RuleID int `path:"ruleID"`
-	Body   restmodels.Action
-}) (*struct{ Body restmodels.Action }, error) {
-	if err := requireRulesModify(ctx); err != nil {
-		return nil, err
-	}
-	created, err := w.db.CreateAction(input.RuleID, input.Body)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	return &struct{ Body restmodels.Action }{Body: created}, nil
-}
-
-// UpdateAction replaces an existing action
-func (w WebApp) UpdateAction(ctx context.Context, input *struct {
-	RuleID   int `path:"ruleID"`
-	ActionID int `path:"actionID"`
-	Body     restmodels.Action
-}) (*struct{ Body restmodels.Action }, error) {
-	if err := requireRulesModify(ctx); err != nil {
-		return nil, err
-	}
-	updated, err := w.db.UpdateAction(input.RuleID, input.ActionID, input.Body)
-	if err != nil {
-		return nil, internalError(err)
-	}
-	return &struct{ Body restmodels.Action }{Body: updated}, nil
-}
-
-// DeleteAction removes an action from a rule
-func (w WebApp) DeleteAction(ctx context.Context, input *struct {
-	RuleID   int `path:"ruleID"`
-	ActionID int `path:"actionID"`
-}) (*struct{}, error) {
-	if err := requireRulesModify(ctx); err != nil {
-		return nil, err
-	}
-	if err := w.db.DeleteAction(input.RuleID, input.ActionID); err != nil {
-		return nil, internalError(err)
-	}
 	return nil, nil
 }
 

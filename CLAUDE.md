@@ -6,7 +6,7 @@ ITTT (If-This-Then-That) automation orchestrator. Evaluates condition trees and 
 
 Two deployment modes, both share the same binary:
 
-- **`api`** — REST API (port 8080). Handles CRUD for rules/actions, publishes rule events to RabbitMQ. No rule evaluation, no action triggering.
+- **`api`** — REST API (port 8080). Handles CRUD for rules (condition tree and actions are written together with the rule), publishes rule events to RabbitMQ. No rule evaluation, no action triggering.
 - **`rule-state`** — Evaluation and scheduling daemon. Consumes both device-update events and rule events from RabbitMQ. Evaluates condition trees, triggers actions, and owns all scheduling state. No API surface.
 
 ```
@@ -15,7 +15,7 @@ User / UI
     | HTTP
     v
 [ api mode ]
-    |  CRUD rules/actions      |  rule upsert/delete events
+    |  CRUD rules              |  rule upsert/delete events
     +---------> MariaDB <------+
     |                          |
     | RabbitMQ upsert/delete   |
@@ -36,7 +36,7 @@ User / UI
 The two modes have strict, non-overlapping responsibilities. Do not blur this boundary when adding features.
 
 **`api` owns:**
-- REST API — all CRUD for rules and actions
+- REST API — all CRUD for rules. A rule is always written whole (`POST` / `PUT`), including its condition tree and actions; there are no sub-resource endpoints for conditions or actions
 - Publishing rule events to RabbitMQ so `rule-state` stays in sync
 - Never writes `next_occurrence` or `backoff_until` — those are `rule-state`'s exclusive domain
 
@@ -71,7 +71,7 @@ migrations/              # Flyway SQL migrations
 **Condition types**:
 See `README.md`
 
-**Actions**: Each rule has N actions. An action targets either a device or a group, specifies a capability, and passes args as a JSON blob.
+**Actions**: Each rule has N actions. An action targets either a device or a group, specifies a capability, and passes args as a JSON blob. Actions are replaced wholesale whenever the rule is saved.
 
 **Scheduling**: `rule-state` holds a lock-protected map of `ruleID → timer`. On evaluation, it recalculates and resets the timer. Past-due timestamps are handled gracefully (fire immediately).
 

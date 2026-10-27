@@ -134,8 +134,11 @@ In the API, for a `rule`, it looks something like
 }
 ```
 
-Through the API, `actions` should be individually mantainable, but an action
-is always related to only a single `rule`. 
+There are no API endpoints for individual `actions`. Like the `condition tree`,
+the full list of `actions` is sent as part of the `rule` when creating it
+(`POST /rules`) or replacing it (`PUT /rules/{id}`), and the stored actions are
+replaced with the supplied list. `action-id` is assigned by the server, ignored
+on input and not stable across updates.
 
 # Implementation details
 

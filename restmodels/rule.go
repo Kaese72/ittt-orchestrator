@@ -4,7 +4,9 @@ import "time"
 
 // Action describes a capability trigger that fires when a rule's conditions are true.
 type Action struct {
-	// ActionID is the resource identifier used when managing actions individually.
+	// ActionID is assigned by the server and ignored on input. Actions are replaced
+	// wholesale whenever the owning rule is created or updated, so IDs are not stable
+	// across saves.
 	ActionID   int            `json:"action-id,omitempty"`
 	Type       string         `json:"type"`
 	ID         int            `json:"id"`

@@ -19,10 +19,4 @@ type PersistenceDB interface {
 	DeleteRule(id int) error
 	UpdateNextOccurrence(ruleID int, t *time.Time) error
 	UpdateCooldownUntil(ruleID int, t *time.Time) error
-
-	GetActions(ruleID int) ([]restmodels.Action, error)
-	GetAction(ruleID, actionID int) (restmodels.Action, error)
-	CreateAction(ruleID int, action restmodels.Action) (restmodels.Action, error)
-	UpdateAction(ruleID, actionID int, action restmodels.Action) (restmodels.Action, error)
-	DeleteAction(ruleID, actionID int) error
 }

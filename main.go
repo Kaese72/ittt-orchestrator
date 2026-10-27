@@ -87,11 +87,6 @@ func runAPI() {
 
 	huma.Get(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/evaluate", webapp.EvaluateRule)
 	huma.Post(api, "/ittt-orchestrator/v0/evaluate", webapp.EvaluateConditionTreeDirect)
-	huma.Get(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/actions", webapp.GetActions)
-	huma.Post(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/actions", webapp.CreateAction)
-	huma.Get(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/actions/{actionID:[0-9]+}", webapp.GetAction)
-	huma.Put(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/actions/{actionID:[0-9]+}", webapp.UpdateAction)
-	huma.Delete(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/actions/{actionID:[0-9]+}", webapp.DeleteAction)
 
 	log.Info("Starting ittt-orchestrator api on :8080", map[string]interface{}{})
 	if err := http.ListenAndServe(":8080", router); err != nil {

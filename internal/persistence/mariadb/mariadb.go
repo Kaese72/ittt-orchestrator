@@ -479,7 +479,7 @@ func (p *mariadbPersistence) loadRule(id int) (restmodels.Rule, error) {
 		rule.ConditionTree = buildConditionTree(condMap, int(rootConditionID.Int64))
 	}
 
-	actions, err := p.GetActions(id)
+	actions, err := p.loadActions(id)
 	if err != nil {
 		return restmodels.Rule{}, err
 	}
@@ -604,6 +604,10 @@ func (p *mariadbPersistence) CreateRule(rule restmodels.Rule) (restmodels.Rule, 
 		return restmodels.Rule{}, err
 	}
 
+	if err := insertActions(tx, int(ruleID), rule.Actions); err != nil {
+		return restmodels.Rule{}, err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return restmodels.Rule{}, err
 	}
@@ -650,6 +654,14 @@ func (p *mariadbPersistence) UpdateRule(id int, rule restmodels.Rule) (restmodel
 		return restmodels.Rule{}, err
 	}
 
+	// Replace the actions the same way: delete existing ones, insert the new set.
+	if _, err = tx.Exec(`DELETE FROM rule_actions WHERE rule_id = ?`, id); err != nil {
+		return restmodels.Rule{}, err
+	}
+	if err := insertActions(tx, id, rule.Actions); err != nil {
+		return restmodels.Rule{}, err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return restmodels.Rule{}, err
 	}
@@ -671,7 +683,8 @@ func (p *mariadbPersistence) DeleteRule(id int) error {
 	return nil
 }
 
-func (p *mariadbPersistence) GetActions(ruleID int) ([]restmodels.Action, error) {
+// loadActions returns all actions belonging to a rule.
+func (p *mariadbPersistence) loadActions(ruleID int) ([]restmodels.Action, error) {
 	rows, err := p.db.Query(
 		`SELECT id, type, target_id, capability, args FROM rule_actions WHERE rule_id = ? ORDER BY id`,
 		ruleID,
@@ -683,77 +696,20 @@ func (p *mariadbPersistence) GetActions(ruleID int) ([]restmodels.Action, error)
 	return scanActions(rows)
 }
 
-func (p *mariadbPersistence) GetAction(ruleID, actionID int) (restmodels.Action, error) {
-	rows, err := p.db.Query(
-		`SELECT id, type, target_id, capability, args FROM rule_actions WHERE rule_id = ? AND id = ?`,
-		ruleID, actionID,
-	)
-	if err != nil {
-		return restmodels.Action{}, err
-	}
-	defer rows.Close()
-	actions, err := scanActions(rows)
-	if err != nil {
-		return restmodels.Action{}, err
-	}
-	if len(actions) == 0 {
-		return restmodels.Action{}, huma.Error404NotFound(fmt.Sprintf("action %d not found for rule %d", actionID, ruleID))
-	}
-	return actions[0], nil
-}
-
-func (p *mariadbPersistence) CreateAction(ruleID int, action restmodels.Action) (restmodels.Action, error) {
-	argsJSON, err := marshalArgs(action.Args)
-	if err != nil {
-		return restmodels.Action{}, err
-	}
-	result, err := p.db.Exec(
-		`INSERT INTO rule_actions (rule_id, type, target_id, capability, args) VALUES (?, ?, ?, ?, ?)`,
-		ruleID, action.Type, action.ID, action.Capability, argsJSON,
-	)
-	if err != nil {
-		return restmodels.Action{}, err
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return restmodels.Action{}, err
-	}
-	return p.GetAction(ruleID, int(id))
-}
-
-func (p *mariadbPersistence) UpdateAction(ruleID, actionID int, action restmodels.Action) (restmodels.Action, error) {
-	argsJSON, err := marshalArgs(action.Args)
-	if err != nil {
-		return restmodels.Action{}, err
-	}
-	var exists int
-	if err := p.db.QueryRow(`SELECT COUNT(1) FROM rule_actions WHERE id = ? AND rule_id = ?`, actionID, ruleID).Scan(&exists); err != nil {
-		return restmodels.Action{}, err
-	}
-	if exists == 0 {
-		return restmodels.Action{}, huma.Error404NotFound(fmt.Sprintf("action %d not found for rule %d", actionID, ruleID))
-	}
-
-	if _, err := p.db.Exec(
-		`UPDATE rule_actions SET type = ?, target_id = ?, capability = ?, args = ? WHERE id = ? AND rule_id = ?`,
-		action.Type, action.ID, action.Capability, argsJSON, actionID, ruleID,
-	); err != nil {
-		return restmodels.Action{}, err
-	}
-	return p.GetAction(ruleID, actionID)
-}
-
-func (p *mariadbPersistence) DeleteAction(ruleID, actionID int) error {
-	result, err := p.db.Exec(`DELETE FROM rule_actions WHERE id = ? AND rule_id = ?`, actionID, ruleID)
-	if err != nil {
-		return err
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return huma.Error404NotFound(fmt.Sprintf("action %d not found for rule %d", actionID, ruleID))
+// insertActions inserts actions for a rule in the given order. Any ActionID set
+// on the input is ignored; the database assigns new IDs.
+func insertActions(tx *sql.Tx, ruleID int, actions []restmodels.Action) error {
+	for _, action := range actions {
+		argsJSON, err := marshalArgs(action.Args)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO rule_actions (rule_id, type, target_id, capability, args) VALUES (?, ?, ?, ?, ?)`,
+			ruleID, action.Type, action.ID, action.Capability, argsJSON,
+		); err != nil {
+			return err
+		}
 	}
 	return nil
 }
