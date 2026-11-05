@@ -71,7 +71,13 @@ func runAPI() {
 	}
 
 	router := mux.NewRouter()
-	router.Use(usertoken.Middleware(pubKey, "/ittt-orchestrator/openapi", "/ittt-orchestrator/docs"))
+	// API tokens are accepted (looked up in the authentication service) only
+	// when its internal URL is configured; use tokens always are.
+	authOptions := []usertoken.MiddlewareOption{usertoken.SkipPrefixes("/ittt-orchestrator/openapi", "/ittt-orchestrator/docs")}
+	if config.Loaded.Auth.InternalURL != "" {
+		authOptions = append(authOptions, usertoken.AcceptAPITokens(usertoken.NewIntrospector(config.Loaded.Auth.InternalURL, config.Loaded.Auth.ServiceAccountTokenPath)))
+	}
+	router.Use(usertoken.NewMiddleware(pubKey, authOptions...))
 	humaConfig := huma.DefaultConfig("ittt-orchestrator", "1.0.0")
 	humaConfig.OpenAPIPath = "/ittt-orchestrator/openapi"
 	humaConfig.DocsPath = "/ittt-orchestrator/docs"

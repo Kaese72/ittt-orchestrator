@@ -58,6 +58,14 @@ func (c DeviceStoreConfig) Validate() error {
 
 type AuthConfig struct {
 	RSAPublicKeyPath string `mapstructure:"rsa-public-key-path"`
+	// InternalURL is the authentication service's internal listener, e.g.
+	// http://authentication:8081. When set, API tokens are accepted and
+	// looked up there; when empty, only use tokens are.
+	InternalURL string `mapstructure:"internal-url"`
+	// ServiceAccountTokenPath is this pod's projected, audience-bound
+	// ServiceAccount token, presented to the authentication service when
+	// looking an API token up.
+	ServiceAccountTokenPath string `mapstructure:"service-account-token-path"`
 }
 
 type Config struct {
@@ -107,6 +115,10 @@ func init() {
 
 	// Authentication service public key (RS256 use-token verification; api mode only)
 	viper.BindEnv("auth.rsa-public-key-path")
+	// API token introspection (optional; see AuthConfig.InternalURL)
+	viper.BindEnv("auth.internal-url")
+	viper.BindEnv("auth.service-account-token-path")
+	viper.SetDefault("auth.service-account-token-path", "/var/run/secrets/tokens/authentication-internal")
 
 	if err := viper.Unmarshal(&Loaded); err != nil {
 		log.Error(err.Error(), map[string]interface{}{})
