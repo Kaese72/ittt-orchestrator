@@ -12,6 +12,7 @@ import (
 	// aliased: GetRules (below) builds its SQL as a local "query" variable,
 	// which would otherwise shadow the package.
 	libquery "github.com/Kaese72/huemie-lib/query"
+	"github.com/Kaese72/huemie-lib/telemetry"
 	"github.com/danielgtaylor/huma/v2"
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -36,7 +37,7 @@ type mariadbPersistence struct {
 func NewMariadbPersistence(conf config.DatabaseConfig) (*mariadbPersistence, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
 		conf.User, conf.Password, conf.Host, conf.Port, conf.Database)
-	db, err := sql.Open("mysql", dsn)
+	db, err := telemetry.OpenDB("mysql", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +51,7 @@ type conditionRow struct {
 	FromTime        sql.NullString
 	ToTime          sql.NullString
 	Timezone        string
-	Days            sql.NullInt64   // bitmask of active weekdays (bit N = time.Weekday(N)), used by time-range-days
+	Days            sql.NullInt64 // bitmask of active weekdays (bit N = time.Weekday(N)), used by time-range-days
 	DeviceID        sql.NullInt64
 	Attribute       sql.NullString
 	Boolean         sql.NullInt64   // NULL = not set, 0 = false, 1 = true

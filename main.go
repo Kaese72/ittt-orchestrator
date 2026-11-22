@@ -9,6 +9,7 @@ import (
 
 	"github.com/Kaese72/authentication/usertoken"
 	log "github.com/Kaese72/huemie-lib/logging"
+	"github.com/Kaese72/huemie-lib/telemetry"
 	"github.com/Kaese72/ittt-orchestrator/internal/config"
 	"github.com/Kaese72/ittt-orchestrator/internal/devicestore"
 	"github.com/Kaese72/ittt-orchestrator/internal/events"
@@ -26,6 +27,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "usage: ittt-orchestrator <command>\n\ncommands:\n  api         Run the REST API server\n  rule-state  Run the rule scheduling state manager\n")
 		os.Exit(1)
 	}
+
+	// One service name per mode: they are separate workloads with separate
+	// responsibilities, and show up as separate nodes in the trace graph.
+	shutdownTelemetry := telemetry.Setup(context.Background(), "ittt-orchestrator-"+os.Args[1])
+	defer shutdownTelemetry(context.Background())
 
 	if err := config.Loaded.Validate(); err != nil {
 		log.Error(err.Error(), map[string]interface{}{})
@@ -95,7 +101,7 @@ func runAPI() {
 	huma.Post(api, "/ittt-orchestrator/v0/evaluate", webapp.EvaluateConditionTreeDirect)
 
 	log.Info("Starting ittt-orchestrator api on :8080", map[string]interface{}{})
-	if err := http.ListenAndServe(":8080", router); err != nil {
+	if err := http.ListenAndServe(":8080", telemetry.Router(router)); err != nil {
 		log.Error(err.Error(), map[string]interface{}{})
 		os.Exit(1)
 	}
