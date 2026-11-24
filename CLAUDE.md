@@ -71,6 +71,8 @@ migrations/              # Flyway SQL migrations
 **Condition types**:
 See `README.md`
 
+**Schema descriptions are API, read by AI agents**: `GET /ittt-orchestrator/v0/rules/schema` serves the rule schema (bundled from the OpenAPI registry at startup by `restwebapp.BundleSchema`; routes are registered in `restwebapp.RegisterRoutes`, which must register the schema route last). The chatbot hands it to its LLM and MCP clients as the rule format. So behavior belongs in the schema: `doc` tags on fields and a `TransformSchema` description per type (`restmodels/condition_schema.go`, using `describeCondition`, which also pins the condition's `type` enum). A new condition type needs one; `TestConditionSchemasDescribed` enforces it. Keep descriptions short and in sync with `README.condition-types.md`.
+
 **Actions**: Each rule has N actions. An action targets either a device or a group, specifies a capability, and passes args as a JSON blob. Actions are replaced wholesale whenever the rule is saved.
 
 **Scheduling**: `rule-state` holds a lock-protected map of `ruleID → timer`. On evaluation, it recalculates and resets the timer. Past-due timestamps are handled gracefully (fire immediately).

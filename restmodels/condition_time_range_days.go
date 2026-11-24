@@ -24,10 +24,10 @@ var dayNameToWeekday = map[string]time.Weekday{
 // Friday 22:00 through Saturday 02:00.
 type TimeRangeDaysCondition struct {
 	Type     string   `json:"type"`
-	From     string   `json:"from"     format:"time" pattern:"^([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$" patternDescription:"HH:MM:SS" example:"22:00:00"`
-	To       string   `json:"to"       format:"time" pattern:"^([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$" patternDescription:"HH:MM:SS" example:"02:00:00"`
-	Timezone string   `json:"timezone" doc:"IANA timezone identifier" example:"Europe/Stockholm"`
-	Days     []string `json:"days"     minItems:"1" maxItems:"6" enum:"monday,tuesday,wednesday,thursday,friday,saturday,sunday" doc:"Days on which the time range is active, determined by the day 'from' falls on."`
+	From     string   `json:"from"     format:"time" pattern:"^([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$" patternDescription:"HH:MM:SS" example:"22:00:00" doc:"Start of the daily window (inclusive), local time in timezone."`
+	To       string   `json:"to"       format:"time" pattern:"^([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$" patternDescription:"HH:MM:SS" example:"02:00:00" doc:"End of the daily window (exclusive), local time in timezone. Earlier than from means the window wraps past midnight."`
+	Timezone string   `json:"timezone" doc:"IANA timezone identifier that from and to are in." example:"Europe/Stockholm"`
+	Days     []string `json:"days"     minItems:"1" maxItems:"6" enum:"monday,tuesday,wednesday,thursday,friday,saturday,sunday" doc:"1 to 6 weekdays the window is active on (use time-range for every day). A window wrapping past midnight belongs to the day it starts on."`
 }
 
 func (c TimeRangeDaysCondition) DeviceReferences() []int { return nil }

@@ -9,10 +9,10 @@ import (
 // DeviceAttributeBooleanEqCondition checks that a device attribute equals a boolean value.
 type DeviceAttributeBooleanEqCondition struct {
 	Type            string `json:"type"`
-	ID              int    `json:"id"`
-	Attribute       string `json:"attribute"`
-	Boolean         bool   `json:"boolean"`
-	CooldownSeconds *int64 `json:"cooldown-seconds,omitempty"`
+	ID              int    `json:"id" doc:"The ID of the device whose attribute is checked."`
+	Attribute       string `json:"attribute" doc:"The attribute name, as listed by device-store for that device. Its current value is compared."`
+	Boolean         bool   `json:"boolean" doc:"The boolean the attribute must equal."`
+	CooldownSeconds *int64 `json:"cooldown-seconds,omitempty" doc:"Debounce: when this device reports an update, the rule is evaluated this many seconds after its latest update instead of immediately, so it only fires if the condition still holds by then."`
 }
 
 func (c DeviceAttributeBooleanEqCondition) DeviceReferences() []int     { return []int{c.ID} }

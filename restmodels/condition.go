@@ -54,8 +54,8 @@ func conditionCooldownSeconds(c Condition) int64 {
 // Each node holds a condition check and optional AND/OR child nodes.
 type ConditionTree struct {
 	Condition ConditionUnion `json:"condition"`
-	And       *ConditionTree `json:"and,omitempty"`
-	Or        *ConditionTree `json:"or,omitempty"`
+	And       *ConditionTree `json:"and,omitempty" doc:"Must also be true, together with this node's condition."`
+	Or        *ConditionTree `json:"or,omitempty" doc:"Alternative: this node is also true when this subtree is true."`
 }
 
 // Evaluate walks the tree recursively, returning the combined result, a
@@ -277,7 +277,8 @@ func (ConditionUnion) Schema(r huma.Registry) *huma.Schema {
 	}
 
 	return &huma.Schema{
-		OneOf: oneOf,
+		Description: "The check at this node; its type field selects the condition type.",
+		OneOf:       oneOf,
 		Discriminator: &huma.Discriminator{
 			PropertyName: "type",
 			Mapping:      mapping,

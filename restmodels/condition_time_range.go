@@ -11,9 +11,9 @@ import (
 // TimeRangeCondition checks whether the current time falls within a daily window.
 type TimeRangeCondition struct {
 	Type     string `json:"type"`
-	From     string `json:"from"     format:"time" pattern:"^([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$" patternDescription:"HH:MM:SS" example:"06:00:00"`
-	To       string `json:"to"       format:"time" pattern:"^([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$" patternDescription:"HH:MM:SS" example:"22:00:00"`
-	Timezone string `json:"timezone" doc:"IANA timezone identifier" example:"Europe/Stockholm"`
+	From     string `json:"from"     format:"time" pattern:"^([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$" patternDescription:"HH:MM:SS" example:"06:00:00" doc:"Start of the daily window (inclusive), local time in timezone."`
+	To       string `json:"to"       format:"time" pattern:"^([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$" patternDescription:"HH:MM:SS" example:"22:00:00" doc:"End of the daily window (exclusive), local time in timezone. Earlier than from means the window wraps past midnight."`
+	Timezone string `json:"timezone" doc:"IANA timezone identifier that from and to are in." example:"Europe/Stockholm"`
 }
 
 func (c TimeRangeCondition) DeviceReferences() []int { return nil }

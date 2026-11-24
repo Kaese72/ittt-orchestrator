@@ -89,16 +89,10 @@ func runAPI() {
 	humaConfig.DocsPath = "/ittt-orchestrator/docs"
 	api := humamux.New(router, humaConfig)
 
-	huma.Get(api, "/ittt-orchestrator/v0/status", webapp.GetStatus)
-	huma.Get(api, "/ittt-orchestrator/v0/globals/timezones", webapp.GetTimezones)
-	huma.Get(api, "/ittt-orchestrator/v0/rules", webapp.GetRules)
-	huma.Get(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}", webapp.GetRule)
-	huma.Post(api, "/ittt-orchestrator/v0/rules", webapp.CreateRule)
-	huma.Put(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}", webapp.UpdateRule)
-	huma.Delete(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}", webapp.DeleteRule)
-
-	huma.Get(api, "/ittt-orchestrator/v0/rules/{ruleID:[0-9]+}/evaluate", webapp.EvaluateRule)
-	huma.Post(api, "/ittt-orchestrator/v0/evaluate", webapp.EvaluateConditionTreeDirect)
+	if err := restwebapp.RegisterRoutes(api, webapp); err != nil {
+		log.Error(err.Error(), map[string]interface{}{})
+		os.Exit(1)
+	}
 
 	log.Info("Starting ittt-orchestrator api on :8080", map[string]interface{}{})
 	if err := http.ListenAndServe(":8080", telemetry.Router(router)); err != nil {

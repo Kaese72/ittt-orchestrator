@@ -25,10 +25,10 @@ func fetchTextAttribute(ctx EvalContext, id int, attribute string) (string, Eval
 // DeviceAttributeTextEqCondition is true when the attribute text exactly matches value (case-sensitive).
 type DeviceAttributeTextEqCondition struct {
 	Type            string `json:"type"`
-	ID              int    `json:"id"`
-	Attribute       string `json:"attribute"`
-	Value           string `json:"value"`
-	CooldownSeconds *int64 `json:"cooldown-seconds,omitempty"`
+	ID              int    `json:"id" doc:"The ID of the device whose attribute is checked."`
+	Attribute       string `json:"attribute" doc:"The attribute name, as listed by device-store for that device. Its current value is compared."`
+	Value           string `json:"value" doc:"The text the attribute is compared with."`
+	CooldownSeconds *int64 `json:"cooldown-seconds,omitempty" doc:"Debounce: when this device reports an update, the rule is evaluated this many seconds after its latest update instead of immediately, so it only fires if the condition still holds by then."`
 }
 
 func (c DeviceAttributeTextEqCondition) DeviceReferences() []int    { return []int{c.ID} }
@@ -47,10 +47,10 @@ func (c DeviceAttributeTextEqCondition) Evaluate(ctx EvalContext) EvalResult {
 // DeviceAttributeTextSubstringCondition is true when the attribute text contains value.
 type DeviceAttributeTextSubstringCondition struct {
 	Type            string `json:"type"`
-	ID              int    `json:"id"`
-	Attribute       string `json:"attribute"`
-	Value           string `json:"value"`
-	CooldownSeconds *int64 `json:"cooldown-seconds,omitempty"`
+	ID              int    `json:"id" doc:"The ID of the device whose attribute is checked."`
+	Attribute       string `json:"attribute" doc:"The attribute name, as listed by device-store for that device. Its current value is compared."`
+	Value           string `json:"value" doc:"The text the attribute is compared with."`
+	CooldownSeconds *int64 `json:"cooldown-seconds,omitempty" doc:"Debounce: when this device reports an update, the rule is evaluated this many seconds after its latest update instead of immediately, so it only fires if the condition still holds by then."`
 }
 
 func (c DeviceAttributeTextSubstringCondition) DeviceReferences() []int    { return []int{c.ID} }

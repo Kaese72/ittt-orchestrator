@@ -28,10 +28,10 @@ func fetchNumericAttribute(ctx EvalContext, id int, attribute string) (float64, 
 // DeviceAttributeNumberEqCondition is true when |actual - value| < 0.01.
 type DeviceAttributeNumberEqCondition struct {
 	Type            string  `json:"type"`
-	ID              int     `json:"id"`
-	Attribute       string  `json:"attribute"`
-	Value           float64 `json:"value"`
-	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty"`
+	ID              int     `json:"id" doc:"The ID of the device whose attribute is checked."`
+	Attribute       string  `json:"attribute" doc:"The attribute name, as listed by device-store for that device. Its current value is compared."`
+	Value           float64 `json:"value" doc:"The number the attribute is compared with."`
+	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty" doc:"Debounce: when this device reports an update, the rule is evaluated this many seconds after its latest update instead of immediately, so it only fires if the condition still holds by then."`
 }
 
 func (c DeviceAttributeNumberEqCondition) DeviceReferences() []int    { return []int{c.ID} }
@@ -50,11 +50,11 @@ func (c DeviceAttributeNumberEqCondition) Evaluate(ctx EvalContext) EvalResult {
 // DeviceAttributeNumberEqMarginCondition is true when |actual - value| <= margin.
 type DeviceAttributeNumberEqMarginCondition struct {
 	Type            string  `json:"type"`
-	ID              int     `json:"id"`
-	Attribute       string  `json:"attribute"`
-	Value           float64 `json:"value"`
-	Margin          float64 `json:"margin"`
-	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty"`
+	ID              int     `json:"id" doc:"The ID of the device whose attribute is checked."`
+	Attribute       string  `json:"attribute" doc:"The attribute name, as listed by device-store for that device. Its current value is compared."`
+	Value           float64 `json:"value" doc:"The number the attribute is compared with."`
+	Margin          float64 `json:"margin" minimum:"0" doc:"The largest allowed difference between the attribute and value."`
+	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty" doc:"Debounce: when this device reports an update, the rule is evaluated this many seconds after its latest update instead of immediately, so it only fires if the condition still holds by then."`
 }
 
 func (c DeviceAttributeNumberEqMarginCondition) DeviceReferences() []int    { return []int{c.ID} }
@@ -80,10 +80,10 @@ func (c DeviceAttributeNumberEqMarginCondition) Resolve(_ huma.Context, _ *huma.
 // DeviceAttributeNumberLtCondition is true when actual < value.
 type DeviceAttributeNumberLtCondition struct {
 	Type            string  `json:"type"`
-	ID              int     `json:"id"`
-	Attribute       string  `json:"attribute"`
-	Value           float64 `json:"value"`
-	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty"`
+	ID              int     `json:"id" doc:"The ID of the device whose attribute is checked."`
+	Attribute       string  `json:"attribute" doc:"The attribute name, as listed by device-store for that device. Its current value is compared."`
+	Value           float64 `json:"value" doc:"The number the attribute is compared with."`
+	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty" doc:"Debounce: when this device reports an update, the rule is evaluated this many seconds after its latest update instead of immediately, so it only fires if the condition still holds by then."`
 }
 
 func (c DeviceAttributeNumberLtCondition) DeviceReferences() []int    { return []int{c.ID} }
@@ -102,10 +102,10 @@ func (c DeviceAttributeNumberLtCondition) Evaluate(ctx EvalContext) EvalResult {
 // DeviceAttributeNumberGtCondition is true when actual > value.
 type DeviceAttributeNumberGtCondition struct {
 	Type            string  `json:"type"`
-	ID              int     `json:"id"`
-	Attribute       string  `json:"attribute"`
-	Value           float64 `json:"value"`
-	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty"`
+	ID              int     `json:"id" doc:"The ID of the device whose attribute is checked."`
+	Attribute       string  `json:"attribute" doc:"The attribute name, as listed by device-store for that device. Its current value is compared."`
+	Value           float64 `json:"value" doc:"The number the attribute is compared with."`
+	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty" doc:"Debounce: when this device reports an update, the rule is evaluated this many seconds after its latest update instead of immediately, so it only fires if the condition still holds by then."`
 }
 
 func (c DeviceAttributeNumberGtCondition) DeviceReferences() []int    { return []int{c.ID} }
@@ -124,10 +124,10 @@ func (c DeviceAttributeNumberGtCondition) Evaluate(ctx EvalContext) EvalResult {
 // DeviceAttributeNumberLteCondition is true when actual <= value.
 type DeviceAttributeNumberLteCondition struct {
 	Type            string  `json:"type"`
-	ID              int     `json:"id"`
-	Attribute       string  `json:"attribute"`
-	Value           float64 `json:"value"`
-	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty"`
+	ID              int     `json:"id" doc:"The ID of the device whose attribute is checked."`
+	Attribute       string  `json:"attribute" doc:"The attribute name, as listed by device-store for that device. Its current value is compared."`
+	Value           float64 `json:"value" doc:"The number the attribute is compared with."`
+	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty" doc:"Debounce: when this device reports an update, the rule is evaluated this many seconds after its latest update instead of immediately, so it only fires if the condition still holds by then."`
 }
 
 func (c DeviceAttributeNumberLteCondition) DeviceReferences() []int    { return []int{c.ID} }
@@ -146,10 +146,10 @@ func (c DeviceAttributeNumberLteCondition) Evaluate(ctx EvalContext) EvalResult 
 // DeviceAttributeNumberGteCondition is true when actual >= value.
 type DeviceAttributeNumberGteCondition struct {
 	Type            string  `json:"type"`
-	ID              int     `json:"id"`
-	Attribute       string  `json:"attribute"`
-	Value           float64 `json:"value"`
-	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty"`
+	ID              int     `json:"id" doc:"The ID of the device whose attribute is checked."`
+	Attribute       string  `json:"attribute" doc:"The attribute name, as listed by device-store for that device. Its current value is compared."`
+	Value           float64 `json:"value" doc:"The number the attribute is compared with."`
+	CooldownSeconds *int64  `json:"cooldown-seconds,omitempty" doc:"Debounce: when this device reports an update, the rule is evaluated this many seconds after its latest update instead of immediately, so it only fires if the condition still holds by then."`
 }
 
 func (c DeviceAttributeNumberGteCondition) DeviceReferences() []int    { return []int{c.ID} }
