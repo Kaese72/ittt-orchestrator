@@ -144,9 +144,9 @@ func (c *evalContext) GetDeviceAttribute(deviceID int, attribute string) (*devic
 
 func triggerAction(dsClient DeviceStoreClient, action restmodels.Action) error {
 	switch action.Type {
-	case "device-capability":
+	case restmodels.ActionTypeDevice:
 		return dsClient.TriggerDeviceCapability(action.ID, action.Capability, action.Args)
-	case "group-capability":
+	case restmodels.ActionTypeGroup:
 		return dsClient.TriggerGroupCapability(action.ID, action.Capability, action.Args)
 	default:
 		return fmt.Errorf("unknown action type: %s", action.Type)

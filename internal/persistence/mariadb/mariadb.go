@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,8 +20,37 @@ import (
 
 // ruleFilters defines what filters are available for the rules model.
 var ruleFilters = map[string]libquery.FieldSpec{
-	"name":    libquery.Merge(libquery.TextOperators("name")),
-	"enabled": libquery.Merge(libquery.BoolOperator("enabled")),
+	"name":            libquery.Merge(libquery.TextOperators("name")),
+	"enabled":         libquery.Merge(libquery.BoolOperator("enabled")),
+	"related-devices": libquery.Merge(relatedInOperator("related_devices")),
+	"related-groups":  libquery.Merge(relatedInOperator("related_groups")),
+}
+
+// relatedInOperator returns an "in" operator matching rules whose JSON ID
+// array column shares at least one ID with a comma-separated list -- the same
+// {operator: "in", value: "3,4,5"} shape the UI's id-list filter sends for
+// the device and group tables' own ID columns. JSON_OVERLAPS can't use an
+// index, so this scans every rule; fine for the number of rules a home has.
+func relatedInOperator(column string) map[string]libquery.OperatorFunc {
+	return map[string]libquery.OperatorFunc{
+		"in": func(value string) (string, []any, error) {
+			ids := []int{}
+			for _, raw := range strings.Split(value, ",") {
+				id, err := strconv.Atoi(strings.TrimSpace(raw))
+				if err != nil || id <= 0 {
+					return "", nil, huma.Error400BadRequest(fmt.Sprintf("filter value %q must be a comma-separated list of positive integer IDs", value))
+				}
+				ids = append(ids, id)
+			}
+			// Marshalled from validated ints, so the parameter is always a
+			// JSON array of numbers.
+			idsJSON, err := json.Marshal(ids)
+			if err != nil {
+				return "", nil, err
+			}
+			return "JSON_OVERLAPS(" + column + ", ?)", []any{string(idsJSON)}, nil
+		},
+	}
 }
 
 // ruleSortFields are the fields "sort" may reference for GetRules. The rules
@@ -448,9 +478,11 @@ func (p *mariadbPersistence) loadRule(id int) (restmodels.Rule, error) {
 		rootConditionID sql.NullInt64
 		nextOccurence   sql.NullTime
 		cooldownUntil   sql.NullTime
+		relatedDevices  []byte
+		relatedGroups   []byte
 	)
-	err := p.db.QueryRow(`SELECT name, enabled, root_condition_id, next_occurence, cooldown_until FROM rules WHERE id = ?`, id).
-		Scan(&ruleName, &ruleEnabledInt, &rootConditionID, &nextOccurence, &cooldownUntil)
+	err := p.db.QueryRow(`SELECT name, enabled, root_condition_id, next_occurence, cooldown_until, related_devices, related_groups FROM rules WHERE id = ?`, id).
+		Scan(&ruleName, &ruleEnabledInt, &rootConditionID, &nextOccurence, &cooldownUntil, &relatedDevices, &relatedGroups)
 	if err == sql.ErrNoRows {
 		return restmodels.Rule{}, huma.Error404NotFound(fmt.Sprintf("rule %d not found", id))
 	}
@@ -471,6 +503,12 @@ func (p *mariadbPersistence) loadRule(id int) (restmodels.Rule, error) {
 		t := cooldownUntil.Time
 		rule.CooldownUntil = &t
 	}
+	if rule.RelatedDevices, err = decodeIDs(relatedDevices); err != nil {
+		return restmodels.Rule{}, fmt.Errorf("rule %d related_devices: %w", id, err)
+	}
+	if rule.RelatedGroups, err = decodeIDs(relatedGroups); err != nil {
+		return restmodels.Rule{}, fmt.Errorf("rule %d related_groups: %w", id, err)
+	}
 
 	if rootConditionID.Valid {
 		condMap, err := p.loadConditions(id)
@@ -487,6 +525,40 @@ func (p *mariadbPersistence) loadRule(id int) (restmodels.Rule, error) {
 	rule.Actions = actions
 
 	return rule, nil
+}
+
+// decodeIDs decodes a related_devices/related_groups JSON array, as an empty
+// (not nil) slice when there are none, so the API always shows a list.
+func decodeIDs(raw []byte) ([]int, error) {
+	ids := []int{}
+	if len(raw) == 0 {
+		return ids, nil
+	}
+	if err := json.Unmarshal(raw, &ids); err != nil {
+		return nil, err
+	}
+	if ids == nil {
+		ids = []int{}
+	}
+	return ids, nil
+}
+
+// storeRelatedIDs stores the rule's derived device and group references
+// (restmodels.Rule.RelatedIDs) on its row, replacing what was there. Called
+// in the same transaction that writes the condition tree and actions, so the
+// two can never disagree.
+func storeRelatedIDs(tx *sql.Tx, ruleID int, rule restmodels.Rule) error {
+	devices, groups := rule.RelatedIDs()
+	devicesJSON, err := json.Marshal(devices)
+	if err != nil {
+		return err
+	}
+	groupsJSON, err := json.Marshal(groups)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`UPDATE rules SET related_devices = ?, related_groups = ? WHERE id = ?`, string(devicesJSON), string(groupsJSON), ruleID)
+	return err
 }
 
 // paginationClause returns the SQL "LIMIT ? OFFSET ?" fragment and its arguments
@@ -608,6 +680,9 @@ func (p *mariadbPersistence) CreateRule(rule restmodels.Rule) (restmodels.Rule, 
 	if err := insertActions(tx, int(ruleID), rule.Actions); err != nil {
 		return restmodels.Rule{}, err
 	}
+	if err := storeRelatedIDs(tx, int(ruleID), rule); err != nil {
+		return restmodels.Rule{}, err
+	}
 
 	if err := tx.Commit(); err != nil {
 		return restmodels.Rule{}, err
@@ -660,6 +735,9 @@ func (p *mariadbPersistence) UpdateRule(id int, rule restmodels.Rule) (restmodel
 		return restmodels.Rule{}, err
 	}
 	if err := insertActions(tx, id, rule.Actions); err != nil {
+		return restmodels.Rule{}, err
+	}
+	if err := storeRelatedIDs(tx, id, rule); err != nil {
 		return restmodels.Rule{}, err
 	}
 

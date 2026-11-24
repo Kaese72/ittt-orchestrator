@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/Kaese72/huemie-lib/query"
+	"github.com/Kaese72/ittt-orchestrator/internal/scheduler"
 )
 
 // These exercise ruleFilters/ruleSortFields directly (no DB needed, since
@@ -33,6 +34,33 @@ func TestRuleFilters(t *testing.T) {
 			t.Fatalf("unexpected result: fragments=%v args=%v", fragments, args)
 		}
 	})
+
+	for field, column := range map[string]string{"related-devices": "related_devices", "related-groups": "related_groups"} {
+		t.Run(field+" in", func(t *testing.T) {
+			fragments, args, err := query.Translate([]query.Filter{
+				{Field: field, Operator: "in", Value: "3, 4,5"},
+			}, ruleFilters)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(fragments) != 1 || fragments[0] != "JSON_OVERLAPS("+column+", ?)" {
+				t.Fatalf("unexpected fragment: %v", fragments)
+			}
+			// The IDs go in as one JSON array parameter, never into the SQL.
+			if len(args) != 1 || args[0] != "[3,4,5]" {
+				t.Fatalf("unexpected args: %v", args)
+			}
+		})
+		for _, bad := range []string{"", "abc", "3,", "0", "-1", "3;DROP TABLE rules"} {
+			t.Run(field+" rejects "+bad, func(t *testing.T) {
+				if _, _, err := query.Translate([]query.Filter{
+					{Field: field, Operator: "in", Value: bad},
+				}, ruleFilters); err == nil {
+					t.Fatalf("expected an error for %q", bad)
+				}
+			})
+		}
+	}
 
 	t.Run("unknown field", func(t *testing.T) {
 		if _, _, err := query.Translate([]query.Filter{
@@ -69,4 +97,13 @@ func TestRuleSortFields(t *testing.T) {
 			t.Fatal("expected an error for an unsortable field")
 		}
 	})
+}
+
+// The scheduler filters rules for each device update through these same
+// fields; a renamed field or operator here would otherwise only fail at
+// runtime, on every device update.
+func TestDeviceUpdateFiltersAccepted(t *testing.T) {
+	if _, _, err := query.Translate(scheduler.DeviceUpdateFilters(7), ruleFilters); err != nil {
+		t.Fatalf("scheduler's device-update filters rejected: %v", err)
+	}
 }

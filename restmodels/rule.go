@@ -1,6 +1,7 @@
 package restmodels
 
 import (
+	"sort"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -42,6 +43,53 @@ type Rule struct {
 	// CooldownUntil is system-managed. It is set when a condition-triggered cooldown is in
 	// progress and cleared once the timer fires and the rule has been re-evaluated.
 	CooldownUntil *time.Time `json:"cooldown-until,omitempty" doc:"System-managed: set while a condition cooldown postpones evaluation, to when it will be evaluated. Ignored on input."`
+	// RelatedDevices/RelatedGroups are derived from the condition tree and
+	// actions (RelatedIDs) and stored whenever the rule is written, so rules
+	// can be filtered by them. Always present in responses, never required
+	// on input -- clients round-trip GET output into PUT unchanged.
+	RelatedDevices []int `json:"related-devices" required:"false" readOnly:"true" doc:"System-managed: IDs of every device this rule refers to, in its conditions or as an action target. Ignored on input."`
+	RelatedGroups  []int `json:"related-groups" required:"false" readOnly:"true" doc:"System-managed: IDs of every group this rule triggers as an action target. Ignored on input."`
+}
+
+const (
+	ActionTypeDevice = "device-capability"
+	ActionTypeGroup  = "group-capability"
+)
+
+// RelatedIDs returns the sorted, de-duplicated IDs of the devices (condition
+// references and device-capability actions) and groups (group-capability
+// actions) the rule refers to. A group's member devices are not included:
+// membership lives in device-store and changes without the rule being saved.
+// Non-positive IDs are not real references and are skipped (persistence
+// stores a zero condition device ID as NULL, too).
+func (r Rule) RelatedIDs() (devices []int, groups []int) {
+	deviceSet := map[int]bool{}
+	groupSet := map[int]bool{}
+	if r.ConditionTree != nil {
+		for _, id := range r.ConditionTree.DeviceReferences() {
+			deviceSet[id] = true
+		}
+	}
+	for _, action := range r.Actions {
+		switch action.Type {
+		case ActionTypeDevice:
+			deviceSet[action.ID] = true
+		case ActionTypeGroup:
+			groupSet[action.ID] = true
+		}
+	}
+	return sortedPositive(deviceSet), sortedPositive(groupSet)
+}
+
+func sortedPositive(set map[int]bool) []int {
+	ids := []int{}
+	for id := range set {
+		if id > 0 {
+			ids = append(ids, id)
+		}
+	}
+	sort.Ints(ids)
+	return ids
 }
 
 func (Rule) TransformSchema(_ huma.Registry, s *huma.Schema) *huma.Schema {

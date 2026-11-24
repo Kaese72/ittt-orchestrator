@@ -143,6 +143,31 @@ on input and not stable across updates.
 An action's `type` is either `device-capability` (`id` is a device ID) or
 `group-capability` (`id` is a group ID); any other value is rejected.
 
+## Related devices and groups
+
+Every rule carries two read-only lists, derived from its condition tree and actions and
+stored whenever the rule is saved:
+
+* `related-devices`: every device the rule refers to, in a condition or as the target of a
+  `device-capability` action.
+* `related-groups`: every group that is the target of a `group-capability` action.
+
+Both are sorted ID lists, always present in responses (empty when there are none) and
+ignored on input. A group's member devices are *not* in `related-devices`: membership lives
+in device-store and changes without the rule being saved.
+
+They can be filtered with the `in` operator and a comma-separated list of IDs, matching
+rules that refer to any of them, e.g. every rule involving device 7:
+
+```
+GET /ittt-orchestrator/v0/rules?filters=[{"field":"related-devices","operator":"in","value":"7"}]
+```
+
+They are stored on the rule itself, as JSON arrays in the `related_devices` / `related_groups`
+columns of `rules` (see `migrations/V012.sql`, which also backfills existing rules), rewritten in
+the same transaction that saves the rule, and filtered with `JSON_OVERLAPS`. That can't use an
+index, so the filter scans every rule; fine for the number of rules a home has.
+
 ## Rule schema
 
 `GET /ittt-orchestrator/v0/rules/schema` returns the JSON Schema of a rule as one

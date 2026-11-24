@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -74,8 +75,20 @@ func (s *Scheduler) HandleRuleEvent(event eventmodels.RuleEvent) {
 // the event bus. It finds rules that reference the updated device. If the matching
 // condition has a cooldown, the rule is scheduled to re-evaluate after the cooldown
 // expires; otherwise it is evaluated immediately.
+//
+// Only enabled rules whose related-devices include the device are loaded, so
+// an update costs a lookup of the rules involving that device rather than a
+// load of every rule. related-devices also lists devices a rule only targets
+// with an action, so each candidate is still checked for a condition on the
+// device: an update from a device the rule merely controls must not trigger
+// it.
 func (s *Scheduler) HandleDeviceUpdate(update eventmodels.DeviceAttributeUpdate) {
-	rules, _, err := s.db.GetRules(nil, nil, query.Pagination{})
+	if update.DeviceID <= 0 {
+		// Not a real device ID, so no rule can refer to it (and the
+		// related-devices filter would reject it).
+		return
+	}
+	rules, _, err := s.db.GetRules(DeviceUpdateFilters(update.DeviceID), nil, query.Pagination{})
 	if err != nil {
 		log.Error(fmt.Sprintf("scheduler: failed to load rules for device update: %s", err.Error()), map[string]interface{}{})
 		return
@@ -147,6 +160,17 @@ func (s *Scheduler) evaluate(ruleID int, evalTime time.Time) {
 	}
 	if result.NextOccurrence != nil {
 		s.scheduleAt(ruleID, *result.NextOccurrence)
+	}
+}
+
+// DeviceUpdateFilters selects the rules a device update can affect: enabled,
+// and referring to the device (see restmodels.Rule.RelatedIDs). The same
+// filter fields the REST API exposes, defined in the persistence layer
+// (exported so its tests can check they are accepted there).
+func DeviceUpdateFilters(deviceID int) []query.Filter {
+	return []query.Filter{
+		{Field: "related-devices", Operator: "in", Value: strconv.Itoa(deviceID)},
+		{Field: "enabled", Operator: "bool-eq", Value: "true"},
 	}
 }
 
