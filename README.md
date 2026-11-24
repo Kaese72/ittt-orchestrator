@@ -143,6 +143,21 @@ on input and not stable across updates.
 An action's `type` is either `device-capability` (`id` is a device ID) or
 `group-capability` (`id` is a group ID); any other value is rejected.
 
+## Filtering rules
+
+`GET /ittt-orchestrator/v0/rules` takes `filters`, a JSON array of `{field, operator, value}`:
+
+| Field | Operators |
+|---|---|
+| `name` | `text-eq`, `text-contains` |
+| `enabled` | `bool-eq` (`"true"`/`"false"`) |
+| `related-devices`, `related-groups` | `in` (comma-separated IDs; see below) |
+| `next-occurence` | `date-eq`, `date-lt`, `date-gt` (RFC3339 timestamp); `is-null` (`"true"`: not scheduled, `"false"`: scheduled) |
+
+The rule-state mode uses the same filters internally: enabled rules involving a device on
+each device update, and enabled, scheduled rules (only their ID and `next-occurence`) at
+startup.
+
 ## Related devices and groups
 
 Every rule carries two read-only lists, derived from its condition tree and actions and

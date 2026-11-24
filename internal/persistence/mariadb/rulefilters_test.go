@@ -107,3 +107,37 @@ func TestDeviceUpdateFiltersAccepted(t *testing.T) {
 		t.Fatalf("scheduler's device-update filters rejected: %v", err)
 	}
 }
+
+func TestStartupFiltersAccepted(t *testing.T) {
+	if _, _, err := query.Translate(scheduler.StartupFilters(), ruleFilters); err != nil {
+		t.Fatalf("scheduler's startup filters rejected: %v", err)
+	}
+}
+
+func TestNextOccurrenceFilters(t *testing.T) {
+	for _, tc := range []struct {
+		operator, value, fragment string
+		args                      int
+	}{
+		{"is-null", "true", "next_occurence IS NULL", 0},
+		{"is-null", "false", "next_occurence IS NOT NULL", 0},
+		{"date-gt", "2026-11-25T06:00:00Z", "next_occurence > ?", 1},
+		{"date-lt", "2026-11-25T06:00:00+01:00", "next_occurence < ?", 1},
+	} {
+		fragments, args, err := query.Translate([]query.Filter{{Field: "next-occurence", Operator: tc.operator, Value: tc.value}}, ruleFilters)
+		if err != nil {
+			t.Fatalf("%s %s: %v", tc.operator, tc.value, err)
+		}
+		if len(fragments) != 1 || fragments[0] != tc.fragment || len(args) != tc.args {
+			t.Fatalf("%s %s: got %v %v", tc.operator, tc.value, fragments, args)
+		}
+	}
+	for _, bad := range []query.Filter{
+		{Field: "next-occurence", Operator: "is-null", Value: "maybe"},
+		{Field: "next-occurence", Operator: "date-gt", Value: "tomorrow"},
+	} {
+		if _, _, err := query.Translate([]query.Filter{bad}, ruleFilters); err == nil {
+			t.Fatalf("expected an error for %+v", bad)
+		}
+	}
+}

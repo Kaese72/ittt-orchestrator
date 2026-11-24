@@ -19,4 +19,15 @@ type PersistenceDB interface {
 	DeleteRule(id int) error
 	UpdateNextOccurrence(ruleID int, t *time.Time) error
 	UpdateCooldownUntil(ruleID int, t *time.Time) error
+	// GetRuleSchedules returns just the ID and next occurrence of every rule
+	// matching filters (the same filters as GetRules) -- no condition tree or
+	// actions -- for seeding scheduler timers cheaply. Rules without a next
+	// occurrence are left out regardless of filters.
+	GetRuleSchedules(filters []query.Filter) ([]RuleSchedule, error)
+}
+
+// RuleSchedule is the scheduling-relevant part of a rule.
+type RuleSchedule struct {
+	RuleID         int
+	NextOccurrence time.Time
 }

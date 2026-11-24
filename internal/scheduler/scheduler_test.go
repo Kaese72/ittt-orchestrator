@@ -8,22 +8,27 @@ import (
 
 	"github.com/Kaese72/huemie-lib/query"
 	"github.com/Kaese72/ittt-orchestrator/eventmodels"
+	"github.com/Kaese72/ittt-orchestrator/internal/persistence"
 	"github.com/Kaese72/ittt-orchestrator/restmodels"
 )
 
 // fakeDB records the filters GetRules is called with and returns fixed
 // rules. Only the methods HandleDeviceUpdate uses do anything.
 type fakeDB struct {
-	mu       sync.Mutex
-	rules    []restmodels.Rule
-	filters  [][]query.Filter
-	cooldown map[int]*time.Time
+	mu              sync.Mutex
+	rules           []restmodels.Rule
+	filters         [][]query.Filter
+	cooldown        map[int]*time.Time
+	schedules       []persistence.RuleSchedule
+	scheduleFilters [][]query.Filter
+	getRulesCalls   int
 }
 
 func (f *fakeDB) GetRules(filters []query.Filter, _ []query.Sort, _ query.Pagination) ([]restmodels.Rule, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.filters = append(f.filters, filters)
+	f.getRulesCalls++
 	return f.rules, len(f.rules), nil
 }
 func (f *fakeDB) GetRule(int) (restmodels.Rule, error)                { return restmodels.Rule{}, nil }
@@ -89,5 +94,40 @@ func TestHandleDeviceUpdateIgnoresInvalidDeviceID(t *testing.T) {
 	New(db, nil).HandleDeviceUpdate(eventmodels.DeviceAttributeUpdate{DeviceID: 0})
 	if len(db.filters) != 0 {
 		t.Fatalf("GetRules called for device 0: %v", db.filters)
+	}
+}
+
+func (f *fakeDB) GetRuleSchedules(filters []query.Filter) ([]persistence.RuleSchedule, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.scheduleFilters = append(f.scheduleFilters, filters)
+	return f.schedules, nil
+}
+
+func TestStartSchedulesFromScheduleRowsOnly(t *testing.T) {
+	at := time.Now().Add(time.Hour)
+	db := &fakeDB{
+		cooldown:  map[int]*time.Time{},
+		schedules: []persistence.RuleSchedule{{RuleID: 4, NextOccurrence: at}, {RuleID: 9, NextOccurrence: at}},
+	}
+	s := New(db, nil)
+	s.Start()
+	defer func() {
+		for id := range s.timers {
+			s.cancel(id)
+		}
+	}()
+
+	if db.getRulesCalls != 0 {
+		t.Errorf("Start loaded whole rules via GetRules %d time(s)", db.getRulesCalls)
+	}
+	if len(db.scheduleFilters) != 1 || !reflect.DeepEqual(db.scheduleFilters[0], StartupFilters()) {
+		t.Fatalf("GetRuleSchedules filters = %v, want %v", db.scheduleFilters, StartupFilters())
+	}
+	if _, ok := s.timers[4]; !ok {
+		t.Error("rule 4 not scheduled")
+	}
+	if _, ok := s.timers[9]; !ok {
+		t.Error("rule 9 not scheduled")
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Kaese72/ittt-orchestrator/internal/config"
+	"github.com/Kaese72/ittt-orchestrator/internal/persistence"
 	"github.com/Kaese72/ittt-orchestrator/restmodels"
 	// aliased: GetRules (below) builds its SQL as a local "query" variable,
 	// which would otherwise shadow the package.
@@ -24,6 +25,26 @@ var ruleFilters = map[string]libquery.FieldSpec{
 	"enabled":         libquery.Merge(libquery.BoolOperator("enabled")),
 	"related-devices": libquery.Merge(relatedInOperator("related_devices")),
 	"related-groups":  libquery.Merge(relatedInOperator("related_groups")),
+	// date-eq/date-lt/date-gt against an RFC3339 value, plus is-null for
+	// "is (not) scheduled at all".
+	"next-occurence": libquery.Merge(libquery.DateOperators("next_occurence"), nullOperator("next_occurence")),
+}
+
+// nullOperator returns an "is-null" operator for column: value "true"
+// matches rows where it is NULL, "false" rows where it is set.
+func nullOperator(column string) map[string]libquery.OperatorFunc {
+	return map[string]libquery.OperatorFunc{
+		"is-null": func(value string) (string, []any, error) {
+			switch value {
+			case "true":
+				return column + " IS NULL", nil, nil
+			case "false":
+				return column + " IS NOT NULL", nil, nil
+			default:
+				return "", nil, huma.Error400BadRequest(fmt.Sprintf("filter value %q must be \"true\" or \"false\"", value))
+			}
+		},
+	}
 }
 
 // relatedInOperator returns an "in" operator matching rules whose JSON ID
@@ -638,6 +659,30 @@ func (p *mariadbPersistence) GetRules(filters []libquery.Filter, sorts []libquer
 		rules = append(rules, rule)
 	}
 	return rules, total, nil
+}
+
+// GetRuleSchedules reads only id and next_occurence, in one query, instead of
+// loading each matching rule's conditions and actions like GetRules does.
+func (p *mariadbPersistence) GetRuleSchedules(filters []libquery.Filter) ([]persistence.RuleSchedule, error) {
+	fragments, args, err := libquery.Translate(filters, ruleFilters)
+	if err != nil {
+		return nil, err
+	}
+	fragments = append(fragments, "next_occurence IS NOT NULL")
+	rows, err := p.db.Query(`SELECT id, next_occurence FROM rules WHERE `+strings.Join(fragments, " AND ")+` ORDER BY id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	schedules := []persistence.RuleSchedule{}
+	for rows.Next() {
+		var schedule persistence.RuleSchedule
+		if err := rows.Scan(&schedule.RuleID, &schedule.NextOccurrence); err != nil {
+			return nil, err
+		}
+		schedules = append(schedules, schedule)
+	}
+	return schedules, rows.Err()
 }
 
 func (p *mariadbPersistence) GetRule(id int) (restmodels.Rule, error) {

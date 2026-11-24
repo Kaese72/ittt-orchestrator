@@ -33,18 +33,28 @@ func New(db persistence.PersistenceDB, orch *orchestrator.Orchestrator) *Schedul
 }
 
 // Start seeds the initial schedule from next_occurrence stored in the database.
-// Call this once after the scheduler is wired up.
+// Call this once after the scheduler is wired up. It reads only the ID and
+// next occurrence of the enabled rules that have one (StartupFilters), not
+// whole rules: a timer needs nothing else, and the rule itself is loaded
+// fresh when the timer fires.
 func (s *Scheduler) Start() {
-	rules, _, err := s.db.GetRules(nil, nil, query.Pagination{})
+	schedules, err := s.db.GetRuleSchedules(StartupFilters())
 	if err != nil {
-		log.Error(fmt.Sprintf("scheduler start: failed to load rules: %s", err.Error()), map[string]interface{}{})
+		log.Error(fmt.Sprintf("scheduler start: failed to load rule schedules: %s", err.Error()), map[string]interface{}{})
 		return
 	}
-	for _, rule := range rules {
-		if !rule.Enabled || rule.NextOccurrence == nil {
-			continue
-		}
-		s.scheduleAt(rule.ID, *rule.NextOccurrence)
+	for _, schedule := range schedules {
+		s.scheduleAt(schedule.RuleID, schedule.NextOccurrence)
+	}
+}
+
+// StartupFilters selects the rules Start schedules: enabled ones with a next
+// occurrence. Exported, like DeviceUpdateFilters, so the persistence tests
+// can check the fields and operators are accepted there.
+func StartupFilters() []query.Filter {
+	return []query.Filter{
+		{Field: "enabled", Operator: "bool-eq", Value: "true"},
+		{Field: "next-occurence", Operator: "is-null", Value: "false"},
 	}
 }
 
